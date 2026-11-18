@@ -447,6 +447,40 @@ les paramètres de **cette voix seulement**. Toutes les destinations de morph
 toucher au moteur ni au code SHARC. À vérifier : où `o[1]` et `o[2]` sont écrits au
 Note On, et le coût d'un recalcul complet à chaque message (20 voix maximum).
 
+### Les deux étages du morph  [sûr sauf mention]
+
+Le morph s'applique en **deux étages** :
+
+1. **Étage programme (global au slot) : Wheel et Impulse.** Chaque paramètre du
+   programme est un objet avec des écouteurs ; un adaptateur (c00f16e4, créé dans
+   `fn_c00ef064`) relaie toute nouvelle valeur vers `slot_param_in(prog, n°, valeur)`
+   (c00f04a4, 77 cas) puis `slot_set_param`. La valeur qui arrive au slot comprend déjà
+   l'effet des morphs Wheel et Impulse **[hyp. forte : rien dans le slot ni dans les
+   voix ne lit la molette pour les destinations]**. L'endroit exact où le modèle de
+   paramètres ajoute ces morphs n'est pas encore lu.
+2. **Étage voix : Velocity et Clavier.** Le moteur du slot tient un descripteur de morph
+   en `moteur+0x270` (`morph_table_ctor`, c0011ff8 : nombre, décalage clavier, ?,
+   entrées, sorties, vélocité, clavier). Une entrée de 0x14 octets par paramètre :
+   **{base, quantité Velocity, quantité Clavier, min, max}**.
+   - `slot_set_param` → `engine_morph_eval` (c0011f18) range la valeur reçue dans
+     `base`, puis calcule la valeur du moteur ;
+   - au déclenchement, chaque voix se lie au moteur (`voice_bind_engine`, c002f020 :
+     `voix+0x54 = moteur+0x270`) ; `voice_apply_velocity` et `voice_morph_eval`
+     calculent `base + vélocité × qté + clavier × qté`, borné, pour cette voix ;
+   - les quantités Velocity viennent du programme : `prog_morph_amount_in` (c00ef774,
+     méthode du programme) → `slot_set_vel_morph_amount` (c0010448) écrit
+     `entrée[i].qté_vélocité`. Une table de 3 octets par destination de morph (en BSS,
+     0xc04ed3fc) donne `i`, ou « Z » pour les destinations de l'arpégiateur
+     (`slot_set_arp_vel_morph_amount`, c0010450, descripteur `slot+0x4b0`).
+
+**Conséquence** : seul le second étage est par voix. Une source Y / Z par voix
+distincte de Velocity demande d'ajouter, par entrée, deux quantités (Y, Z) et deux
+entrées par voix, et d'étendre le calcul. Le format d'entrée (0x14 octets) est lu par
+quatre fonctions (`voice_morph_eval`, `voice_apply_velocity`, `engine_morph_eval`,
+`slot_note_on`) : plutôt que de l'élargir, tenir des **tables parallèles** (qté Y,
+qté Z par entrée) dans notre mémoire, et remplacer les deux fonctions de voix par les
+nôtres.
+
 ### CC74  [sûr pour le récepteur]
 `midi_cc_in` (c011ffc4) reçoit les CC avec leur port et leur canal. Seuls les CC de jeu
 vont aux cibles par `target_controller_in` : CC1 → n° 7, CC4 → 5, CC7 → 10, CC10 → 11,

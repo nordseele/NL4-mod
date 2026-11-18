@@ -120,6 +120,32 @@ Recommandation : **Velocity ← Y pour le premier prototype** (aucune inconnue),
 choisir pour Z entre Wheel et Impulse après lecture de leur chemin vers les voix. Aucune
 option n'exige de nouvel écran ni ne casse les programmes existants, sauf la dernière.
 
+## Sources Y / Z distinctes de Velocity (étude du 2026-11-18)
+
+D'après `docs/voices-midi.md`, « Les deux étages du morph » : Wheel et Impulse
+s'appliquent au niveau du programme (une valeur pour tout le slot) ; Velocity et
+Clavier s'appliquent par voix, dans des entrées {base, qté Velocity, qté Clavier, min,
+max}. D'où :
+
+**Calcul par voix — faisable.** Deux tables parallèles (qté Y, qté Z par entrée de
+morph) et deux entrées par voix (valeur Y, valeur Z du canal). Nos versions de
+`voice_morph_eval` et de la boucle de `voice_apply_velocity` ajoutent
+`Y × qté_Y + Z × qté_Z`. Velocity garde son rôle.
+
+**Où ranger les assignations Y / Z — trois options :**
+
+| Option | Assignation au panneau | Stockage | Coût |
+|---|---|---|---|
+| **Impulse 6 et 7 réservés à Y et Z** (en mode MPE) | geste existant (tenir Impulse 6, tourner) | existant, dans le programme | lire les assignations Impulse dans le modèle de paramètres et empêcher leur effet global ; chemin pas encore lu |
+| **Nouvelles sources Y et Z** | geste nouveau (ex. Shift + Velocity / Wheel) | **à créer** : octets libres du format de programme, ou fichier à part | élevé : format, interface, Sound Manager |
+| **Velocity ← Y** (rappel) | geste existant | existant | faible, mais on perd la vélocité en continu |
+
+Recommandation : **Impulse 6 / 7** si leurs assignations sont lisibles par destination
+(prochaine lecture : le modèle de paramètres du programme et ses morphs, à partir de
+l'adaptateur c00f16e4 et de `fn_c00ef064`). C'est aussi la base de la fonction de
+conversion : « copier les destinations Wheel vers Impulse 7 (Z) », que le copier-coller
+de morphs du Lead 4 sait déjà faire entre sources (à vérifier dans le code).
+
 ## Place disponible sur l'ARM (AM1705)
 
 - **RAM** : 16 Mo de SDRAM (U29). Le code occupe 4,2 Mo à partir de 0xc0000000, les

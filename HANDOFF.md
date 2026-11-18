@@ -203,6 +203,13 @@ de continuer ou non.
 - Piste sans matériel : lire le pilote du système de fichiers « FFS » de l'OS pour
   savoir sur quel bus est la mémoire du firmware.
 
+**Préparé pour l'étape 4 (2026-11-18)** : `tools/pack_oscab.py` reconstruit un `os.cab`
+valide (aller-retour identique, vérification de l'updater reproduite) ; notre code ira
+dans la section SRAM agrandie (`docs/faisabilite.md`, « Où loger notre code »).
+Reste à savoir comment donner le fichier à l'updater : remplacer
+`Contents/Resources/os.cab` dans une copie de l'application (signature à refaire en
+ad hoc si macOS refuse) **[à tester]**.
+
 **Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
 modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode
 Shift + Store, et garder ce fichier prêt pour revenir en arrière. Puis le plus petit patch
@@ -253,3 +260,23 @@ par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
 - Droits : le firmware et les logiciels Clavia restent hors du dépôt. On ne publie que des
   notes, des formats et notre propre code (même ligne que
   [opennord](https://github.com/simonflore/opennord), `docs/LEGAL.md`).
+
+## Idées pour après le MPE (proposées par l'utilisateur, 2026-11-18)
+
+Priorités de l'utilisateur : **les fonctions d'aide (conversion d'un programme en MPE)
+avant tout** ; **des sources de modulation Y / Z distinctes de Velocity** l'intéressent ;
+les nouvelles tables d'ondes ne sont qu'un exemple, pas un objectif (le synthé est déjà
+complet).
+
+
+- **Fonction « convertir pour le MPE »** à la manière du Mutator (`docs/faisabilite.md`).
+- **Nouvelles tables d'ondes.** Repérage rapide **[hyp.]** : les tables sont côté ARM,
+  bloc de données à haute entropie de 0xc01d0000 à ~0xc03bd000 (≈ 1,9 Mo pour 128
+  tables, ≈ 15 Ko chacune, sans doute plusieurs niveaux par table), noms vers
+  0xc03bd800, « WaveTable Version » en 0xc01ca768 ; l'ARM les envoie sans doute au
+  SHARC à la demande (le SHARC n'a pas 1,9 Mo de RAM). Le manuel annonce 128 tables
+  dans un chapitre et 114 dans les caractéristiques : peut-être des emplacements libres.
+  Remplacer une table ne coûte pas de place ; en ajouter au-delà de 128 touche au format
+  des programmes et au CC49 (0–127). Les échantillons se compressent mal : compter
+  ≈ 15 Ko de flash par table, sur une marge connue de 200 Ko.
+
