@@ -74,6 +74,7 @@ matérielle.
 ## Reste à faire pour l'étape 3
 
 1. ~~Entrer en mode Update sans l'OS~~ : fait.
-2. Lire la vérification du fichier côté Mac (« OS BinFile seems broken »).
+2. ~~Vérification du fichier côté Mac~~ : lue (`docs/oscab-format.md`), reproduite par
+   `tools/pack_oscab.py`.
 3. ~~Sauvegarde de U38~~ : U38 est vide (`docs/hardware.md`) ; le firmware est dans une
    autre mémoire. Sauvegarde matérielle abandonnée, sauf dernier recours.

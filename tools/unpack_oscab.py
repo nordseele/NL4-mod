@@ -2,9 +2,10 @@
 
 usage: python3 -I unpack_oscab.py os.cab outdir
 
-Layout (big-endian), worked out from the Lead 4 OS 1.32 file:
-  0x00  u32 header size (0x20), u32 end of image 1, u32 start of image 2, u32 size of image 2
-  image header: u32 0x00xx0100, u32 ?, u32 0x00640000, u32 0, u32 section count,
+Layout (big-endian), worked out from the Lead 4 OS 1.32 file (docs/oscab-format.md):
+  0x00  4 x (u32 offset, u32 size), one pair per image (image 1 = OS, image 2 = factory test)
+  image header (0x2d4 bytes): u16 version, u8 type, u8, u16 build, u16 header checksum,
+  u32 start, u32 0, u32 section count,
   then per section 0x2c bytes: tag[4], offset, size, load address, crc, packed size (0 = stored), packed crc, ...
   Section offsets count from the end of the image's 0x20-byte preamble, i.e. from the image
   header. A section is `size` bytes loaded at its load address; a packed one is `packed size`
@@ -40,9 +41,12 @@ def lzo1x_decompress(src, pos=0):
     if src[ip] > 17:
         t = src[ip] - 17
         ip += 1
-        out += src[ip:ip + t]
-        ip += t
-        state = 'match_next_lit' if t < 4 else 'first_literal_run'
+        if t < 4:
+            state = 'match_next_lit'  # that state copies the t literals itself
+        else:
+            out += src[ip:ip + t]
+            ip += t
+            state = 'first_literal_run'
     while True:
         if ip >= len(src):  # Nord streams carry no LZO end marker: they stop at the packed size
             return bytes(out), ip

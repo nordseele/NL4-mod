@@ -28,6 +28,7 @@ le savoir et nos propres outils le sont.
 | `docs/hardware.md` | carte mère : puces, flash SPI, connecteur P5, récupération | oui |
 | `docs/faisabilite.md` | étape 2 : verdict, modifications, options Y/Z, plan du prototype | oui |
 | `tools/spiprobe.py` | sonde de flash SPI en lecture seule (Pico `pico-serprog`) | oui |
+| `tools/pack_oscab.py` | reconstruit `os.cab` (sections remplacées, LZO, sommes, vérification) | oui |
 | `tools/extract_sharc.py` | extrait les deux programmes SHARC de l'OS (`ghidra/bin/sharc/`) | oui |
 | `docs/sharc.md` | code des SHARC : emplacement, format, import Ghidra | oui |
 | `ghidra/sharc_work/` | projet Ghidra SHARC (jetable) | non |

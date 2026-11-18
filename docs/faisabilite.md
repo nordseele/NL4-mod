@@ -100,8 +100,8 @@ L'arpégiateur et la Chord Memory sont désactivés sur un slot en mode MPE.
   octets`) et les tailles, reconstruire `os.cab`. Outil à écrire
   (`tools/pack_oscab.py`), validé d'abord en reproduisant `os.cab` à l'identique ou à
   l'équivalent.
-- Lire la vérification du fichier côté Mac (« OS BinFile seems broken »), toujours en
-  suspens.
+- Vérification du fichier côté Mac : lue et reproduite (somme de l'en-tête d'image
+  comprise). **Outil écrit et vérifié** : `tools/pack_oscab.py`.
 
 ## Assigner Y et Z dans un programme
 
@@ -126,6 +126,16 @@ option n'exige de nouvel écran ni ne casse les programmes existants, sauf la de
   données statiques vont jusque vers 0xc04F0000, des tampons sont utilisés jusque vers
   0xc0930000 : il reste vraisemblablement plusieurs Mo, à confirmer (bornes du tas non
   lues) **[hyp.]**.
+- **Où loger notre code** : la section CODE ne peut pas grandir (les données de l'OS
+  commencent à 0xc040c000, 2,7 Ko après sa fin). En revanche, la **section SRAM** est
+  du code exécuté depuis la RAM partagée de 128 Ko (53 fonctions de Nord, 0x80000000–
+  0x80001c24). Au-dessus, rien n'est référencé jusqu'aux piles (sommet de la pile
+  système en 0x8001e7a0, piles IRQ/FIQ/SVC jusqu'à 0x8001f000, zone d'échange en
+  0x8001ff00). On agrandit donc la section SRAM avec notre code, appelé depuis le CODE
+  par des sauts longs. Inconnue : la profondeur réelle de la pile système (elle
+  descend depuis 0x8001e7a0) ; avec un patch de 16 Ko en 0x80001c40, il faudrait
+  qu'elle dépasse ~100 Ko pour nous atteindre **[hyp.]**. Repli : code mort du CODE
+  (717 fonctions sans référence directe, 276 Ko, à confirmer une par une).
 - **Code** : le patch MPE et une fonction d'aide à la conversion (ci-dessous) pèsent
   quelques dizaines de Ko. La limite est la zone de flash réservée à l'OS, que le
   clavier annonce à l'updater (« Memory is only %d KB ») et que nous ne connaissons pas.
@@ -157,7 +167,7 @@ changer le format des programmes.
 | Risque | Gravité | Parade |
 |---|---|---|
 | OS modifié qui plante au démarrage | moyenne | mode Update par Shift + Store (vérifié), réinstallation du 1.32 officiel |
-| Fichier refusé par l'updater (vérification Mac non lue) | faible | lire `OS BinFile seems broken` avant le premier essai |
+| Fichier refusé par l'updater | faible | vérification Mac lue et reproduite par `pack_oscab.py` |
 | Processeur saturé par Y/Z continus | moyenne | limiter à un recalcul par voix et par tick ; mesurer |
 | Boot / Update abîmés | très faible | une mise à jour ne les réécrit pas ; dernier recours : démonter la carte |
 | Comportement des SHARC inconnu | faible | on ne leur envoie que ce que le panneau envoie déjà |
