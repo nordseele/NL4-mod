@@ -6,9 +6,10 @@ Layout (big-endian), worked out from the Lead 4 OS 1.32 file:
   0x00  u32 header size (0x20), u32 end of image 1, u32 start of image 2, u32 size of image 2
   image header: u32 0x00xx0100, u32 ?, u32 0x00640000, u32 0, u32 section count,
   then per section 0x2c bytes: tag[4], offset, size, load address, crc, packed size (0 = stored), packed crc, ...
-  Each section starts with a 0x20-byte header (zeros, or metadata for ARM0) that is not
-  loaded; the payload follows and starts at the load address. A packed section is the
-  0x20-byte header, then LZO1X decoding to header + payload.
+  Section offsets count from the end of the image's 0x20-byte preamble, i.e. from the image
+  header. A section is `size` bytes loaded at its load address; a packed one is `packed size`
+  bytes of LZO1X (with its end marker) decoding to exactly `size` bytes.
+  Checksums: crc = ~sum of the section's bytes, packed crc = ~sum of the packed bytes (u32).
 """
 import os, struct, sys
 
@@ -98,42 +99,32 @@ def lzo1x_decompress(src, pos=0):
 
 
 def sections(b, start):
-    """An image is a 0x20-byte preamble then its header; section offsets count from the image start."""
+    """An image is a 0x20-byte preamble then its header; section offsets count from that header."""
     hdr = struct.unpack_from('>5I', b, start + 0x20)
     for i in range(hdr[4]):
         o = start + 0x20 + 0x14 + i * 0x2c
         tag = b[o:o + 4].decode('ascii')
         off, size, addr, crc, psize, pcrc = struct.unpack_from('>6I', b, o + 4)
-        yield tag, start + off, size, addr, crc, psize, pcrc
+        yield tag, start + 0x20 + off, size, addr, crc, psize, pcrc
 
 
 def main(path, outdir):
     b = open(path, 'rb').read()
     os.makedirs(outdir, exist_ok=True)
     _, end1, _, _ = struct.unpack_from('>4I', b, 0)
+    ok = True
     for img, base in ((1, 0), (2, end1)):
         for tag, off, size, addr, crc, psize, pcrc in sections(b, base):
             raw = b[off:off + (psize or size)]
-            if psize:
-                assert raw[:0x20] == bytes(0x20), 'expected 0x20 zero bytes before the stream'
-                data, end = lzo1x_decompress(raw, 0x20)
-                # keep the payload's 0x20-byte zero prefix, as stored sections do
-                # shortcut: image 1 decodes 1 byte past its size (last literal run); trimmed to the declared size
-                data = (bytes(0x20) + data)[:size]
-            else:
-                data = raw
-            ok = 'OK' if len(data) == size else f'TAILLE {len(data):#x} != {size:#x}'
-            # The first 0x20 bytes of a section are a header that is NOT loaded: the payload
-            # starts at the load address (checked: with this, 3310/3311 code pointers found in
-            # tables land on function starts; with the header kept, everything is 0x20 off).
-            hdr, payload = data[:0x20], data[0x20:]
+            data = lzo1x_decompress(raw)[0] if psize else raw
+            nsum = lambda x: (~sum(x)) & 0xffffffff
+            checks = [len(data) == size, nsum(data) == crc] + ([nsum(raw) == pcrc] if psize else [])
             name = f'img{img}_{tag}_{addr:08x}.bin'
-            open(os.path.join(outdir, name), 'wb').write(payload)
-            chk = (~sum(data)) & 0xffffffff
-            print(f'image {img} {tag} @ {addr:#010x}: section {len(data):#x} octets ({ok}),'
-                  f' charge utile {len(payload):#x} ; ~sum8 {chk:08x}'
-                  f' {"= en-tête" if chk == crc else "!= " + format(crc, "08x")}'
-                  + ('' if hdr == bytes(0x20) else f' ; en-tête non nul {hdr.hex()}'))
+            open(os.path.join(outdir, name), 'wb').write(data)
+            print(f'image {img} {tag} @ {addr:#010x}: {len(data):#x} octets,'
+                  f' taille/checksums {"OK" if all(checks) else "KO " + str(checks)}')
+            ok &= all(checks)
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == '__main__':

@@ -141,8 +141,8 @@ et pour certaines une 3ᵉ partie à +0x53C. Tout est monté par `app_midi_graph
 - Une zone = un couple (port, canal). Déclarer chaque canal membre comme une zone de la
   même cible donnerait à chaque canal **sa propre table de 128 notes** : plus de
   collision entre canaux à ce niveau, sans changer la structure.
-- Il reste à savoir comment la sortie `vt[0]` atteint `note_event_handler`, où la clé
-  redevient (slot, note) **sans le canal**.
+- Mais le canal ne va pas plus loin : la cible appelle le slot avec des paires
+  {note, vélocité} seulement (section « Du slot à l'allocateur »).
 
 ### Des cibles au slot  [sûr]
 
@@ -157,12 +157,86 @@ et pour certaines une 3ᵉ partie à +0x53C. Tout est monté par `app_midi_graph
 - `slot->vt[0]` = **`slot_note_on`** (c000f044) : calcule pour la note les valeurs de
   **morph de vélocité et de suivi de clavier** (`(note − 64) × 0x10000`,
   `vélocité >> 3`, base + vélocité × quantité, bornées, pour chaque destination de
-  morph), les applique au moteur du slot, puis transmet la note à l'objet en `slot+0x20`
-  (`fn_c0012e0c`, 0x88 octets). Le lien de cet objet vers `note_event_handler` reste à
-  confirmer.
+  morph), les applique au moteur du slot, puis transmet la note à l'objet en `slot+0x20`.
+  Ce calcul n'a lieu que si le bit 2 du masque est mis.
 - Conséquence pour le MPE : le morph de vélocité est **calculé au Note On, au niveau du
   slot**. C'est un endroit naturel pour une modulation par note (Y/Z), à condition de
   le rendre continu et par voix.
+
+### Du slot à l'allocateur  [sûr]
+
+Les méthodes de note de toute la chaîne ont la même forme :
+`vt[0]` = Note On, `vt[1]` = Note Off, arguments `(objet, &masque, notes, nombre)`, où
+`notes` est un tableau de paires **{note, vélocité}**. Un appel peut donc porter
+plusieurs notes (accord, Chord Memory **[hyp.]**).
+
+```
+slot_note_on (c000f044)                    morph de vélocité si masque & 2
+  └─ slot+0x1C = slot+0x20 : filtre de destinations (0x88 octets, vtable 0xc01bd848)
+       note_dest_filter_on / _off (c00121b8 / c00123b4)
+       un octet d'état par note (128) : sur quelles destinations la note a été lancée,
+       pour que le Note Off reparte au même endroit
+  └─ slot+0x18 : arpégiateur (0x460 octets, vtable 0xc01bd8c0)
+       arp_note_on / _off (c00148f4 / c0012a68) ; laisse passer si l'arpège est coupé
+       (drapeaux +0x1D, +0x1E, +0x458 ; tables de 128 notes en +0x10 / +0x14)
+  └─ slot+0x14 : sortie du slot (8 octets {vtable 0xc01bd6d8, n° de slot})
+       slot_sink_note_on → slot_queue_note_on (c0028780)
+       slot_sink_note_off → slot_queue_note_off (c0027888)
+            └─ table de touches du slot, file d'événements, puis note_queue_drain
+```
+
+`slot_arp_param_in` (c000fb8c, ex-`slot_controller_in`) règle l'objet `slot+0x18`, donc
+l'arpégiateur **[hyp. forte]**.
+
+**`slot_queue_note_on(n° de slot, notes, nombre, &masque)`**, pour chaque note :
+- masque & 1 : purge des événements en attente pour (slot, note), création de la note
+  dans la **table des notes** (`notemap_create`, avec des réglages du slot : `+0x22C`,
+  `+0x22D`, `+0x258`), puis un événement immédiat de type 1 ;
+- masque & 2 : mise à jour de la table de 128 touches du slot (tenue, plus basse, plus
+  haute), vélocité `>> 3` dans la note, événement immédiat de type 2, puis **deux
+  événements en file : type 3 puis type 4**. Un observateur global (`*0xc040d3e4`,
+  méthode 2) reçoit (slot, note, vélocité) ;
+- masque & 4 : événement de type 6.
+
+`slot_queue_note_off` met à jour la table de touches et range un événement de type 5.
+L'observateur reçoit la note par sa méthode 3.
+
+**File d'événements** : réservoir de 0x800 entrées de 16 octets
+`{vtable, type (+4), slot (+8), note (+0xC)}` en `0xc04a6578`, et anneau de 0x200
+pointeurs (compte, lecture, écriture en `0xc04af1f0 − 0xC74 / −0xC70 / −0xC6C`).
+`note_queue_drain` (c0027708) les exécute dans l'ordre. Un événement de type 3 attend
+tant que les voix de la note précédente ne sont pas assez retombées (seuil 0x8000).
+
+**Patron visiteur** : un événement appelle une méthode du **gestionnaire de notes**
+(`0xc04ae578`, vtable `0xc01bde50`) avec lui-même en argument :
+
+| type | vtable de l'événement | méthode du gestionnaire |
+|---|---|---|
+| 1 | 0xc01bddf0 | vt[0] = `note_ev1_alloc_voices` (c0026ae0) |
+| 2 | 0xc01bde00 | vt[1] = `note_ev2_handler` (c0026d50) → `alloc_ev2` → `alloc_core` |
+| 3 | 0xc01bde20 | vt[2] = `note_on_build_voices` (c00268d0) |
+| 4 | 0xc01bde10 | vt[3] = `note_event_handler` (c00263b4) |
+| 6 | 0xc01bde30 | vt[4] = `note_ev6_handler` (c0026c34) |
+| 5 | 0xc01bde40 | vt[5] = `note_off_event` (c002718c) → `alloc_note_off_collect` |
+
+**Deux chemins d'allocation, tous deux actifs :**
+- type 1 (masque & 1) : `note_ev1_alloc_voices` (ex-`note_off_release_voices`, nom faux)
+  lit le mode de la note (`fn_c0016070`). Mode 1 → `alloc_take_mode1` (c0018dcc), qui
+  réutilise les voix d'une note du même slot (**[hyp.]** mono / legato). Modes 0 et 2 →
+  `alloc_take` (c0019220). Les deux trient les notes actives (tri de Shell), demandent
+  `nombre × param[1]` voix (**[hyp.]** × unisson) à **`alloc_pick`** (c0018324,
+  2,7 Ko), puis préparent chaque voix rendue (`fn_c0037db4`) ;
+- type 2 (masque & 2) : `note_ev2_handler` → `alloc_ev2` (c001a7a0) → `alloc_core`
+  (c0019884).
+
+`alloc_note_on` (c001b004) n'a aucun appelant, ni direct ni par pointeur : c'est
+peut-être du code mort. Les rôles exacts des deux chemins (réservation puis
+déclenchement ?) restent à lire.
+
+**Table des notes** (`0xc040f470`) : un arbre binaire de recherche, dont les nœuds
+d'environ 0x258 octets ont leurs fils en `[0x93]` / `[0x94]`. `notemap_has` /
+`notemap_get` / `notemap_create` cherchent avec la clé **`note | slot << 8`**, calculée
+depuis la paire {slot, note}.
 
 ## Création des slots et des voix  [sûr]
 
@@ -191,9 +265,11 @@ Les 20 voix forment un réservoir unique, partagé par les 4 slots (confirme le 
 
 ## Allocation des voix
 
-`note_event_handler` (c00263b4) consomme une file d'événements de note (0x800 entrées de
-16 octets). Pour chaque note : entrée active, mode (1/2/3 — **[hyp.]** poly / mono /
-legato), liste de ses voix, déclenchement ou relâchement de chaque voix.
+`note_event_handler` (c00263b4) est la méthode du gestionnaire de notes appelée par
+l'événement de type 4 (section « Du slot à l'allocateur »). Elle retrouve la note dans la
+table (`notemap_has`, `notemap_get`), puis traite : entrée active, mode (1/2/3 —
+**[hyp.]** poly / mono / legato), liste de ses voix, déclenchement ou relâchement de
+chaque voix.
 
 Objet allocateur : global, à `0xc04a7210 − 0xca0`. **[sûr pour la structure]**
 
@@ -215,7 +291,10 @@ Note active :
 | +0x28 | nombre de voix utilisées (unisson > 1) |
 | +0x2C | voix (pointeurs ; numéro de voix en +8) |
 
-`alloc_note_on` (c001b004) prépare et trie, puis appelle **`alloc_core`** (c0019884) :
+`alloc_note_on` (c001b004, sans appelant) et `alloc_ev2` (c001a7a0) préparent et
+trient, puis appellent **`alloc_core`** (c0019884). Le chemin du type 1 passe, lui, par
+`alloc_pick` (section « Du slot à l'allocateur ») ; il reste à le comparer avec
+`alloc_core`. Ce qu'on sait d'`alloc_core` :
 - réservoir de **64 notes** (entrées de 0x80 octets), distinct des 20 voix ;
 - nombre de voix par note passé à l'appel : 1 en poly, plus en unisson ;
 - les voix sont prises sur les notes en tête de la liste triée ; la clé combine état,
@@ -230,18 +309,36 @@ C'est **le premier obstacle pour le MPE**.
 - L'allocateur recopie cette paire (`+0x14`, `+0x18`).
 - Chaque slot tient un **tableau de 128 touches** (`+0x1C`), le nombre de touches tenues
   (`+0x224`), la plus basse et la plus haute (`+0x21C` / `+0x220`) :
-  `slot_notes_update` (c0027888).
-- Le canal MIDI n'y figure pas.
+  `slot_queue_note_on` / `slot_queue_note_off` (c0028780 / c0027888).
+- Le canal MIDI n'y figure pas. **Il disparaît dès l'appel au slot** : `target_note_on`
+  transmet des paires {note, vélocité}, sans le canal.
 
 Deux doigts sur la même hauteur dans le même slot (courant sur LinnStrument) seraient
-confondus. Il faut ajouter le canal à la clé (ex. `note | canal << 8`), masquer partout
-où la note sert à la hauteur, et donner au tableau de touches une dimension canal.
+confondus. Endroits qui indexent par numéro de note, du premier au dernier :
+
+| où | structure | indexée par |
+|---|---|---|
+| cible | table [zone][note] (une zone par (port, canal)) | déjà par canal |
+| filtre de destinations | 128 octets d'état | note |
+| arpégiateur | tables de 128 notes | note |
+| slot | table de 128 touches | note |
+| table des notes | arbre | `note | slot << 8` |
+| file d'événements | entrée {slot, note} | (slot, note) |
+| allocateur | note active +0x14 / +0x18 | (slot, note) |
+
+**Piste la plus simple** : faire passer une note « étendue » `note + 128 × canal` à partir
+de `target_note_on`. Les tables de 128 deviendraient 128 × 16, ou bien l'arpégiateur et
+le filtre seraient contournés en mode MPE. La clé de l'arbre (`note | slot << 8`) doit
+alors être élargie (`slot << 12`), sinon la note 256 du slot 0 vaut la note 0 du
+slot 1. Enfin, il faudra masquer (`& 0x7F`) partout où la note sert à la hauteur :
+`note_on_build_voices`, le suivi de clavier de `slot_note_on`, l'affichage.
 
 ## Construction des voix d'une note
 
 `note_on_build_voices` (c00268d0) : hauteur de chaque voix =
 `(note − 64 + décalage_i) × 0x10000` (décalages : Chord Memory / unisson **[hyp.]**).
-Le relâchement (`note_off_release_voices`, c0026ae0) dépend du mode de la note.
+Le relâchement (`note_off_event`, c002718c, type 5) passe par `alloc_note_off_collect`
+et dépend des réglages du slot (`+0x22C`).
 
 ## Contrôleurs de jeu du slot
 
@@ -269,9 +366,9 @@ du slot** par `slot_set_param` :
 | 10 (CC7) | 0x56 | |
 | 11 (CC10) | 0x55 | |
 
-`slot+0x260` (écrit par `fn_c000f510`) choisit donc **qui pilote le paramètre 0x29 : la
-molette ou la pression**. Ce paramètre est très probablement la source de morph
-« molette » (à confirmer). La pression ne fait rien si ce réglage vaut 1.
+`slot+0x260` (écrit par `slot_set_wheel_src`) devait choisir qui pilote le paramètre
+0x29 : la molette (1) ou la pression (2). **La valeur 2 n'est jamais écrite** (voir
+« Molette, pression et morph par voix ») : dans l'OS 1.32, la pression ne fait rien.
 
 ### `slot_set_param(slot, n°, &valeur)` (c000f93c)  [sûr]
 
@@ -289,6 +386,57 @@ Mémorise la valeur en `slot+0x2D4 + n° × 4`, puis consulte les drapeaux du pa
 Pour 0x23 (bend), `voice_param_handler` n'a **pas** de cas : c'est la méthode par défaut
 (c00333d0, un simple `bx lr`). **Le bend n'est jamais envoyé voix par voix**,
 seulement au moteur du slot.
+
+## Molette, pression et morph par voix  [sûr sauf mention]
+
+### La pression est du code mort
+`slot+0x260` n'est écrit qu'à 0 (constructeur) et par `slot_set_wheel_src` (c000f510),
+dont le seul appelant, `slot_wheel_mode_apply` (c00f0270), et la même logique recopiée
+dans `fn_c00f0438`, ne passent que 0 ou 1. Le cas « pression → 0x29 » de `slot_midi_ctrl_in` ne
+s'exécute donc jamais. C'est cohérent avec le manuel : le Lead 4 n'a pas d'aftertouch,
+et la source de morph « Wheel » regroupe molette, pédale, CC1 et CC11. **Pour Z, il
+faudra un chemin neuf** ; rien n'est à défaire.
+
+`slot_wheel_mode_apply` lit un mode à `+0x630` (0 à 3) et règle les paramètres 0x29,
+0x2B, 0x2C, 0x2D. Mode 3 : 0x29 = valeur courante de la molette, 0x2B = 100, la molette
+pilote 0x29. Modes 1 et 2 : 0x29 fixé à 127, 0x2B tiré de `+0x62C`, 0x2C / 0x2D
+constants. Mode 0 : tout à 0. Sens exact inconnu (réglage de la pédale ?) **[hyp.]**.
+
+### Le morph molette est global au slot
+0x29 n'a de cas que dans `engine_param_handler` (→ `engine_param_wheel_morph`, c0023e48),
+pas dans `voice_param_handler`. La méthode borne la valeur à 127, la passe par une
+courbe (produits 16 bits), écrit `moteur+0x878` / `+0x87C`, puis prévient l'objet
+`moteur+0x864` (c0052434) si un compteur a changé. Une seule valeur pour tout le slot.
+
+### Le morph de vélocité est calculé voix par voix
+`voice_param_handler` couvre 59 paramètres (0x00–0x20, 0x26–0x28, 0x2C–0x2F, 0x31,
+0x35–0x37, 0x3B, 0x3E–0x44, 0x46, 0x4B–0x4F) : **chaque voix garde sa propre copie des
+paramètres du son.** Avant d'appliquer une valeur, `slot_set_param` (bit 4) la fait
+passer par le convertisseur de la voix, l'objet `voix+0x48` :
+
+```
+voice_morph_eval (c0033538)  objet o = voix+0x48, paramètre n
+  e = table[n]  (o+0xC → +0xC, 5 mots : base, quantité vélocité, quantité clavier, min, max)
+  clavier = (o[1] + table+4) >> 7          o[1] = (note − 64) << 16  [hyp., par analogie]
+  valeur  = base + (o[2] + 1) × qté_vél >> 7 + f(clavier × qté_clavier)
+  (*(o+0x10))[n] = borne(valeur, min, max)       o[2] = vélocité  [hyp. forte]
+```
+
+C'est la même formule que celle de `slot_note_on` pour l'arpégiateur. La vélocité et la
+note de chaque voix sont donc des **entrées par voix** d'un calcul par voix.
+
+**Conséquence pour le MPE (Y / Z)** : faire varier en continu l'entrée vélocité `o[2]`
+d'une voix, depuis le CC74 ou la pression de son canal, puis recalculer et appliquer
+les paramètres de **cette voix seulement**. Toutes les destinations de morph
+« Velocity » d'un programme deviennent alors pilotées par Y ou Z, note par note, sans
+toucher au moteur ni au code SHARC. À vérifier : où `o[1]` et `o[2]` sont écrits au
+Note On, et le coût d'un recalcul complet à chaque message (20 voix maximum).
+
+### CC74
+Le manuel l'affecte à **Filter Frequency**, un paramètre du programme : il passe par le
+chemin normal du panneau, donc vers toutes les voix du slot. Son n° de paramètre n'est
+pas encore identifié (aiguillage `fn_c00f04a4`, 77 cas). Pour le MPE, il faudra le
+détourner sur les canaux membres.
 
 ## Chemin du pitch bend  [sûr]
 
@@ -354,15 +502,13 @@ besoin de sa propre échelle linéaire**. La résolution de 14 bits est conserv�
 
 ## Questions ouvertes, par ordre d'utilité pour le MPE
 
-1. **Du graphe MIDI au slot** : cartographier `app_midi_graph_ctor` et la destination de
-   `cible->vt[0]`, jusqu'à `note_event_handler`. **Pitch stick du panneau** : son chemin
+1. ~~Du graphe MIDI au slot~~ : fait jusqu'au gestionnaire de notes. Reste le rôle des
+   deux chemins d'allocation (`alloc_pick` / `alloc_core`). **Pitch stick du panneau** : son chemin
    n'est pas trouvé. Il n'emprunte pas `midi_bend_in` de façon visible, et
    `midi_routing_setup` n'ajoute que le canal global. Le plus simple : tester sur
    l'instrument (deux slots en Keyboard Focus hors Performance, bouger le stick).
 2. ~~Pitch bend~~ : fait (section « Chemin du pitch bend »).
-3. **Pression (contrôleur 8)** et CC74 : la pression pilote le paramètre 0x29 du slot si
-   `slot+0x260 == 2` (sinon c'est la molette). Reste à savoir ce qu'est 0x29 dans le
-   moteur (`engine_param_handler`, méthode c0023e48) et le chemin du CC74. Puis le
-   chemin par voix du morph de vélocité, pour y brancher Y/Z en continu.
+3. ~~Pression et morph~~ : fait (section « Molette, pression et morph par voix »). Reste
+   le n° de paramètre du CC74 (Filter Freq) et le rôle exact de `slot+0x630`.
 4. Politique exacte du vol de voix (bits de la clé) et limite éventuelle par slot.
 5. Les deux destinations de `hw_write` et la cadence des mises à jour.

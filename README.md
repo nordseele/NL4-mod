@@ -24,6 +24,8 @@ le savoir et nos propres outils le sont.
 | `tools/rebuild.sh` | régénère tout `ghidra/bin/` depuis le dmg | oui |
 | `tools/dump_decomp.py` | pseudo-C de toutes les fonctions → `ghidra/bin/decomp.c` (conteneur jetable) | oui |
 | `docs/oscab-format.md` | format de `os.cab`, sections, compression, checksums | oui |
+| `docs/update-protocol.md` | protocole de mise à jour (programme Mac), modes du clavier, sûreté | oui |
+| `docs/hardware.md` | carte mère : puces, flash SPI, connecteur P5, récupération | oui |
 | `docs/voices-midi.md` | réception MIDI, slots, voix, allocateur (notes de recherche) | oui |
 | `vendor/` | dmg officiel, manuel PDF (+ `manual.txt`), binaire isolé | non |
 | `ghidra/bin/` | `os.cab`, sections décompressées, ELF complet | non |

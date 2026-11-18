@@ -28,10 +28,18 @@ greffer le MPE.
 - [x] `os.cab` décodé : table des sections, compression LZO1X (`docs/oscab-format.md`).
 - [x] OS v1.32 complet décompressé (4,2 Mo de code ARM) et chargé dans Ghidra.
 - [x] La 2ᵉ image est identifiée : un firmware de test usine.
-- [x] **Adresses corrigées** : l'en-tête de 0x20 octets de chaque section n'est pas chargé.
-  Toutes les adresses de fonctions notées avant le commit qui suit `6c7f2fb` étaient
-  0x20 trop hautes (voir l'encadré de `docs/voices-midi.md`).
-- [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
+- [x] **Adresses corrigées** : toutes les adresses de fonctions notées avant le commit
+  qui suit `6c7f2fb` étaient 0x20 trop hautes (voir l'encadré de `docs/voices-midi.md`).
+  Explication complète le 2026-11-18 : les offsets des sections comptent depuis l'en-tête
+  de l'image, pas depuis le préambule. Le prétendu « en-tête non chargé » était la fin de
+  la section précédente (`docs/oscab-format.md`). Les adresses restent bonnes ; chaque
+  section a récupéré ses 0x20 derniers octets.
+- [x] **Checksums des 6 sections reproduits** (2026-11-18) : `~somme des octets`, sur la
+  section et sur le flux compressé. `tools/unpack_oscab.py` les vérifie à chaque
+  extraction.
+- [x] **Protocole de mise à jour lu** dans le programme Mac (`docs/update-protocol.md`) :
+  4 programmes sur le clavier (OS, TP, Update, Boot). Update et Boot ne sont pas dans
+  `os.cab`, donc vraisemblablement jamais réécrits.
 - [~] Réception MIDI : chaîne complète jusqu'aux slots pour les contrôleurs (bend = n° 9,
   pression = n° 8), aiguillage par **masques de bits (port, canal)** par cible, donc un
   slot peut déjà écouter plusieurs canaux. Notes : chemin connu jusqu'au **Note On du
@@ -47,6 +55,12 @@ greffer le MPE.
   au-delà de 2 demi-tons** (linéaire puis parabolique) : le MPE à ±48 demandera sa propre
   échelle. Bend Range = paramètres moteur 0x21 (les deux sens) / 0x22 (vers le bas). Le
   pitch stick du panneau : chemin non trouvé, à tester sur l'instrument.
+- [x] **Note On du slot → allocateur** (2026-11-18) : le canal disparaît dès l'appel au
+  slot (paires {note, vélocité}). Chaîne : filtre de destinations → arpégiateur →
+  sortie du slot → file d'événements {type, slot, note} → gestionnaire de notes (patron
+  visiteur, 6 types). Table des notes = arbre clé `note | slot << 8`. Piste MPE : note
+  étendue `note + 128 × canal` dès `target_note_on`, clé de l'arbre élargie, hauteur
+  masquée. `note_off_release_voices` était mal nommé (c'est l'allocation au Note On).
 
 Détail : **`docs/voices-midi.md`**. Noms des fonctions : `tools/symbols.txt`.
 
@@ -65,6 +79,9 @@ Performance.
   `list_project_binaries`). Serveur MCP déclaré
   dans `.mcp.json`. Les autres conteneurs pyghidra (octalab, p12, sharc) appartiennent à
   d'autres projets : **ne pas y toucher**.
+- Le programme Mac de mise à jour est aussi dans le projet Ghidra
+  (`/nordosupdate_x86_64-<suffixe>`, tranche x86_64 extraite par `lipo`, voir
+  `docs/update-protocol.md`).
 - Ghidra a choisi `ARM:LE:32:v8`. Le vrai cœur est un ARM926 (v5TE). Sans effet visible
   jusqu'ici.
 - La fiche de métadonnées de pyghidra-mcp affiche « 0 instruction / Analyzed false »,
@@ -112,12 +129,15 @@ Il n'est **pas** dans `os.cab`.
 - L'image 2 est un programme de **test usine / service** : « LCD Test », « MIDI Test »,
   « Check LEDs », « Serial Number », identifiants de flash SPI (Micron N25Q032,
   SST 25VF032/26VF032). Elle tourne aux mêmes adresses que l'OS.
-- Le démarrage passe très probablement par la ROM de l'OMAP-L138 (chargement d'une image
+- Le processeur est un **AM1705** (famille OMAP-L137, ARM seul), avec deux SHARC
+  ADSP-21489 pour l'audio et une flash SPI Micron N25Q032 (U38). Voir `docs/hardware.md`.
+- Le démarrage passe très probablement par la ROM de l'AM1705 (chargement d'une image
   AIS depuis la flash SPI), puis par un 1er étage Clavia dans la flash, absent de la mise
   à jour.
-- Question clé pour la sûreté : la mise à jour réécrit-elle seulement la zone OS (le
-  chargeur restant intact, donc récupérable), et le chargeur vérifie-t-il le checksum
-  avant de lancer l'OS ?
+- Le chargeur (mode 5, Boot) et le programme de mise à jour (mode 4, Update) ne sont
+  pas dans `os.cab` (`docs/update-protocol.md`).
+- **Mode Update sans OS : confirmé** sur l'instrument (Shift + Store à l'allumage →
+  « RDY », reconnu par Nord OS Update).
 
 ## À quel niveau mettre le MPE
 
@@ -133,8 +153,9 @@ Ce que le code permet déjà, ou impose :
   l'allocateur et dans le tableau de touches du slot → y ajouter le canal.
 - **Obstacle 2** : bend (contrôleur 9) et pression (n° 8) sont mémorisés **par slot** →
   les rendre par note / par voix.
-- **Piste Y/Z** : le morph de vélocité est calculé au Note On, au niveau du slot
-  (`slot_note_on`) → à rendre continu et par voix.
+- **Piste Y/Z** : le morph de vélocité est calculé **par voix** (`voice_morph_eval`) à
+  partir de la vélocité de la voix → faire varier cette entrée en continu (CC74 / pression
+  du canal) et recalculer la voix.
 - Le pitch est déjà calculé et écrit **voix par voix** par l'ARM (`voice_pitch_*`).
 
 ## Plan (validé avec l'utilisateur le 2026-11-18)
@@ -142,12 +163,15 @@ Ce que le code permet déjà, ou impose :
 **Étape 1 — finir la cartographie (analyse, sans risque).** Ordre conseillé :
 1. ~~Chemin du bend~~ : fait (`docs/voices-midi.md`, « Chemin du pitch bend »). Reste
    le pitch stick du panneau : un test sur l'instrument suffit.
-2. **Note On du slot → voix** : `slot_note_on` (c000f044) → objet `slot+0x20`
-   (`fn_c0012e0c`, 0x88 octets, qui pointe vers l'objet `fn_c0013344` de 0x460 octets)
-   → file d'événements → `note_event_handler` / `alloc_core`.
-3. **Pression (n° 8) et CC74** : la pression pilote le paramètre 0x29 du slot à la
-   place de la molette quand `slot+0x260 == 2`. Reste ce qu'est 0x29 dans le moteur
-   (méthode c0023e48), le CC74, et le chemin par voix du morph de vélocité.
+2. ~~Note On du slot → voix~~ : fait (`docs/voices-midi.md`, « Du slot à
+   l'allocateur »). Reste : le rôle exact des deux chemins d'allocation (`alloc_pick`
+   au type 1, `alloc_core` au type 2).
+3. ~~Pression et morph~~ : fait (`docs/voices-midi.md`, « Molette, pression et morph par
+   voix »). La pression est du code mort dans l'OS 1.32 ; le morph molette est global au
+   slot ; **le morph de vélocité est calculé voix par voix** (`voice_morph_eval`), avec la
+   vélocité comme entrée par voix : c'est le point d'entrée retenu pour Y / Z. Reste :
+   le n° de paramètre du CC74 (Filter Freq), et où l'entrée vélocité de la voix est
+   écrite au Note On.
 4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
    bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
 
@@ -157,12 +181,16 @@ fonctions touchées, niveau (slot / Performance), ce qui est simple, risqué ou 
 de continuer ou non.
 
 **Étape 3 — sécurité avant toute écriture (bloquant).**
-- Reproduire les checksums CODE / ARM0 (piste `CCRC32X` du programme Mac ; l'en-tête
-  d'ARM0 contient des métadonnées).
-- Comprendre la mise à jour : protocole `CITProtocol` du programme Mac, zones de flash
-  réécrites.
-- Voie de récupération : ouvrir le clavier (comme fait sur le Prophet 12), repérer la
-  flash SPI, **sauvegarder la flash complète au programmateur avant tout essai**.
+- ~~Reproduire les checksums CODE / ARM0~~ : fait.
+- ~~Comprendre la mise à jour~~ : fait côté Mac (`docs/update-protocol.md`). La zone
+  effacée est choisie par le clavier. Reste à lire la vérification du fichier
+  (« OS BinFile seems broken »).
+- ~~Entrer en mode Update sans l'OS~~ : Shift + Store à l'allumage, confirmé.
+- ~~Ouvrir le clavier, repérer la flash~~ : U38, Micron N25Q032 ; P5 est son
+  connecteur de programmation (continuité vérifiée, `docs/hardware.md`). Reste :
+  **sauvegarde complète avant le premier flash** (Raspberry Pi Pico + `flashrom`), pas
+  avant.
+- Repérer le code des SHARC (dans CODE, ou une flash à eux : U10 / U34 ?).
 
 **Étape 4 — prototype progressif (seulement après l'étape 3).** Plus petit patch
 observable d'abord (un slot qui écoute plusieurs canaux), puis canal dans la clé, bend
