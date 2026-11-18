@@ -75,6 +75,5 @@ matérielle.
 
 1. ~~Entrer en mode Update sans l'OS~~ : fait.
 2. Lire la vérification du fichier côté Mac (« OS BinFile seems broken »).
-3. Test de continuité P5 ↔ U38, puis sauvegarde complète de U38 au programmateur. Elle
-   donne aussi le code des programmes Boot et Update, donc les vraies règles de
-   récupération.
+3. ~~Sauvegarde de U38~~ : U38 est vide (`docs/hardware.md`) ; le firmware est dans une
+   autre mémoire. Sauvegarde matérielle abandonnée, sauf dernier recours.

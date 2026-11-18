@@ -169,9 +169,11 @@ Ce que le code permet déjà, ou impose :
 3. ~~Pression et morph~~ : fait (`docs/voices-midi.md`, « Molette, pression et morph par
    voix »). La pression est du code mort dans l'OS 1.32 ; le morph molette est global au
    slot ; **le morph de vélocité est calculé voix par voix** (`voice_morph_eval`), avec la
-   vélocité comme entrée par voix : c'est le point d'entrée retenu pour Y / Z. Reste :
-   le n° de paramètre du CC74 (Filter Freq), et où l'entrée vélocité de la voix est
-   écrite au Note On.
+   vélocité comme entrée par voix : c'est le point d'entrée retenu pour Y / Z. L'entrée
+   est écrite au Note On par `voice_apply_velocity` (c0032098), la fonction à rappeler
+   en continu. Le CC74 s'intercepte dans `midi_cc_in` (c011ffc4), qui connaît le canal.
+   Assignation prévue : Y → source de morph Velocity, Z → source Wheel (par voix, à
+   étudier). Reste : comment le morph Wheel atteint les voix, fréquence de `synth_tick`.
 4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
    bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
 
@@ -180,19 +182,21 @@ fonctions touchées, niveau (slot / Performance), ce qui est simple, risqué ou 
 (ex. si le moteur n'accepte pas de modulation continue par voix). Décision de l'utilisateur
 de continuer ou non.
 
-**Étape 3 — sécurité avant toute écriture (bloquant).**
-- ~~Reproduire les checksums CODE / ARM0~~ : fait.
-- ~~Comprendre la mise à jour~~ : fait côté Mac (`docs/update-protocol.md`). La zone
-  effacée est choisie par le clavier. Reste à lire la vérification du fichier
-  (« OS BinFile seems broken »).
+**Étape 3 — sécurité avant toute écriture : faite (2026-11-18).**
+- ~~Reproduire les checksums~~ : fait.
+- ~~Comprendre la mise à jour~~ : fait côté Mac (`docs/update-protocol.md`). Reste à lire
+  la vérification du fichier (« OS BinFile seems broken »).
 - ~~Entrer en mode Update sans l'OS~~ : Shift + Store à l'allumage, confirmé.
-- ~~Ouvrir le clavier, repérer la flash~~ : U38, Micron N25Q032 ; P5 est son
-  connecteur de programmation (continuité vérifiée, `docs/hardware.md`). Reste :
-  **sauvegarde complète avant le premier flash** (Raspberry Pi Pico + `flashrom`), pas
-  avant.
-- Repérer le code des SHARC (dans CODE, ou une flash à eux : U10 / U34 ?).
+- ~~Sauvegarde de la flash~~ : abandonnée. U38 (N25Q032, connecteur P5) a été lue
+  proprement mais elle est **vide** ; le firmware est dans une autre mémoire, non
+  accessible sans démonter la carte (`docs/hardware.md`). Règle de `CLAUDE.md` mise à
+  jour avec l'accord de l'utilisateur.
+- Piste sans matériel : lire le pilote du système de fichiers « FFS » de l'OS pour
+  savoir sur quel bus est la mémoire du firmware.
 
-**Étape 4 — prototype progressif (seulement après l'étape 3).** Plus petit patch
+**Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
+modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode
+Shift + Store, et garder ce fichier prêt pour revenir en arrière. Puis le plus petit patch
 observable d'abord (un slot qui écoute plusieurs canaux), puis canal dans la clé, bend
 par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
 

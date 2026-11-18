@@ -87,6 +87,15 @@ Résultat (2026-11-18, mesuré deux fois par l'utilisateur) :
 sans doute tiré au + par la carte. P5.8 va ailleurs, probablement au reset de l'AM1705,
 pour tenir l'ARM à l'écart du bus pendant la programmation [hyp.].
 
+P5.8, clavier débranché : 10,007 kΩ vers P5.1 (VCC), 10,26 kΩ vers P5.2 (masse). C'est
+une **résistance de tirage de 10 kΩ vers VCC** : P5.8 → VCC = 10 kΩ, et P5.8 → masse =
+10 kΩ + la résistance du rail 3,3 V vers la masse (≈ 0,25 kΩ hors tension). Le rail
+3,3 V est donc chargé par beaucoup de composants : **ne pas l'alimenter par le Pico**.
+Ligne active à l'état bas tirée au + : **reset du système [sûr]**. Clavier allumé, P5.1 =
+3,3 V ; un contact entre P5.8 et la masse a fait claquer les relais de sortie et éteint
+la LED rouge LD1 (voisine de P5), puis le clavier est reparti normalement (2026-11-18).
+LD1 sert donc de témoin : éteinte = carte en reset.
+
 ## Programmateur
 
 Ceux de l'utilisateur ne conviennent pas : MPLAB Snap (microcontrôleurs Microchip),
@@ -114,3 +123,44 @@ Ne pas utiliser les broches 39 (VSYS) et 40 (VBUS, 5 V). Pas de `.uf2` fourni : 
 compiler avec le SDK Pico. Lecture prévue :
 `flashrom -p serprog:dev=/dev/<port>:115200,spispeed=…  -r nl4_flash.bin` (vitesse
 basse d'abord, deux lectures comparées).
+
+### Firmware du Pico
+
+`hardware/pico/pico_serprog.uf2` (hors git), compilé le 2026-11-18 dans un conteneur
+Ubuntu 22.04 : pico-sdk 1.5.1, `pico-serprog` commit `7f4c4b7` (17 oct. 2023),
+`PICO_BOARD=pico` (RP2040, pas le Pico 2). Broches confirmées dans `main.c` : CS = GP1,
+SCK = GP2, MOSI = GP3, MISO = GP4. Côté Mac : `brew install flashrom` (1.8.0).
+
+## Lecture de U38 (2026-11-18) : la puce est vide
+
+Câblage P5 + reset tenu (LD1 éteinte), Pico `pico-serprog`, `flashrom` 1.8.0 :
+- détection correcte (« N25Q032..3E », 4096 kB) ; deux lectures complètes **identiques,
+  entièrement à 0xFF** ;
+- vérification par commandes de lecture seules (`spiprobe.py`, opcodes 9F, 05, 70, B5,
+  85, 65, 03, 0B, 5A) : RDID complet `20 BA 16 10 …`, signature SFDP « SFDP » lue
+  correctement → **le câblage et la liaison sont bons**. READ et FAST READ rendent
+  0xFF à 0, 0x100, 0x10000, 0x100000, 0x200000, 0x3F0000, 0x3FFF00 ;
+- registre d'état 0xB2 : SRWD = 1, TB = 1, BP2 = 1 (protection configurée), WEL = 1 ;
+  registre de drapeaux 0x82 : erreur de protection. `flashrom -r` a tenté de lever la
+  protection (« Unsetting lock bit(s) failed ») : **écriture du registre d'état refusée
+  par la puce, rien n'a changé** ; WEL s'efface à la mise hors tension.
+
+Conclusion : **le firmware n'est pas dans U38** (ou U38 a un autre usage). Le
+programme de démarrage et l'OS sont dans une autre mémoire, à trouver (face inférieure
+de la carte ?). Leçon : `flashrom -r` tente un déverrouillage, donc une écriture du
+registre d'état ; pour une lecture pure, préférer `spiprobe.py` étendu.
+
+## Ce que l'OS fait de U38  [sûr sauf mention]
+
+Au démarrage, l'initialisation système (c0005070) crée un objet flash SPI
+(`spiflash_create`, c014c4a0) sur le contrôleur SPI n° 0 de l'AM1705, et l'identifie
+par RDID (`spiflash_detect`, c01374b4) dans une table (c03efb20) : « Micron N25Q032 »
+(ID 20 BA 16) ou « SST 25VF032 », 4 Mo, secteurs 64 Ko, sous-secteurs 4 Ko, pages 256 o.
+Le pilote a une méthode d'**effacement complet** (`spiflash_chip_erase`, c013730c :
+0x50, 0xC7, attente, lecture du registre de drapeaux). L'OS contient aussi un système de
+fichiers « FFS » (messages d'erreur c0402e30…).
+
+U38 est donc bien utilisée par l'OS, et pourtant vide sur ce clavier. Hypothèses : zone
+de travail effacée après usage (réception d'une mise à jour, transferts Sound
+Manager) ; le firmware et les sons sont dans une autre mémoire (face inférieure,
+mémoire parallèle **[hyp.]**). Sans conséquence pour le MPE.

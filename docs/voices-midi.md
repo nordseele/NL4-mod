@@ -425,6 +425,21 @@ voice_morph_eval (c0033538)  objet o = voix+0x48, paramètre n
 C'est la même formule que celle de `slot_note_on` pour l'arpégiateur. La vélocité et la
 note de chaque voix sont donc des **entrées par voix** d'un calcul par voix.
 
+### Où la vélocité entre dans la voix  [sûr]
+`voice_apply_velocity(voix, vélocité)` (c0032098), appelée par `note_event_handler`
+(c00263b4) pour chaque voix d'une note, sauf en mode 3 (legato **[hyp.]**) :
+- `voix[0xF]` = vélocité ; `voix[0x10]` = courbe de vélocité (terme en v²) ;
+- `voix[0x13]` = **`voice_pitch_offset(voix)`** (hauteur courante, bend compris) : c'est
+  l'entrée « clavier » du morph ; `voix[0x14]` = vélocité : l'entrée « vélocité » ;
+- puis évalue toute la table de morph de la voix (`voix[0x15]`, même formule que
+  `voice_morph_eval`) et pousse les résultats vers les sous-objets de la voix
+  (≈ 80 appels de réglage : oscillateurs, filtre, enveloppes).
+
+C'est **la fonction à rappeler** pour Y / Z : elle recalcule tous les paramètres d'une
+voix sans redéclencher les enveloppes (déclenchement à part : c0032ec0, c00323b0,
+c0032708 **[hyp.]**). Coût estimé : quelques milliers d'instructions par appel, soit de
+l'ordre de 10 µs à 456 MHz **[hyp., à mesurer]**.
+
 **Conséquence pour le MPE (Y / Z)** : faire varier en continu l'entrée vélocité `o[2]`
 d'une voix, depuis le CC74 ou la pression de son canal, puis recalculer et appliquer
 les paramètres de **cette voix seulement**. Toutes les destinations de morph
@@ -432,11 +447,21 @@ les paramètres de **cette voix seulement**. Toutes les destinations de morph
 toucher au moteur ni au code SHARC. À vérifier : où `o[1]` et `o[2]` sont écrits au
 Note On, et le coût d'un recalcul complet à chaque message (20 voix maximum).
 
-### CC74
-Le manuel l'affecte à **Filter Frequency**, un paramètre du programme : il passe par le
-chemin normal du panneau, donc vers toutes les voix du slot. Son n° de paramètre n'est
-pas encore identifié (aiguillage `fn_c00f04a4`, 77 cas). Pour le MPE, il faudra le
-détourner sur les canaux membres.
+### CC74  [sûr pour le récepteur]
+`midi_cc_in` (c011ffc4) reçoit les CC avec leur port et leur canal. Seuls les CC de jeu
+vont aux cibles par `target_controller_in` : CC1 → n° 7, CC4 → 5, CC7 → 10, CC10 → 11,
+CC11 → 6, CC70 → 13, CC77 → 14. Les autres, dont le **CC74 (Filter Frequency)**,
+partent par un autre chemin (paramètres du panneau), non suivi : il n'est pas utile.
+Pour le MPE, il suffit d'intercepter le CC74 des canaux membres **dans `midi_cc_in`**,
+qui connaît le canal, et de l'envoyer vers l'entrée vélocité de la voix jouée sur ce
+canal. Sur le canal maître, le CC74 garde son sens habituel.
+
+### Cadence
+`synth_tick` est enregistré au démarrage comme gestionnaire de niveau 4
+(`fn_c0131e98(4, synth_tick)`, dans la fonction d'initialisation c00002a4). Sa fréquence
+n'est pas déterminée ; on sait qu'il recalcule déjà la hauteur des 20 voix à chaque
+passage. Le coût de Y / Z sera mesuré sur prototype (limiter à un recalcul par voix et
+par tick).
 
 ## Chemin du pitch bend  [sûr]
 
@@ -508,7 +533,8 @@ besoin de sa propre échelle linéaire**. La résolution de 14 bits est conserv�
    `midi_routing_setup` n'ajoute que le canal global. Le plus simple : tester sur
    l'instrument (deux slots en Keyboard Focus hors Performance, bouger le stick).
 2. ~~Pitch bend~~ : fait (section « Chemin du pitch bend »).
-3. ~~Pression et morph~~ : fait (section « Molette, pression et morph par voix »). Reste
-   le n° de paramètre du CC74 (Filter Freq) et le rôle exact de `slot+0x630`.
+3. ~~Pression, morph, CC74~~ : fait (section « Molette, pression et morph par voix »).
+   Reste le rôle de `slot+0x630` et comment le morph Wheel atteint les voix (pour Z).
 4. Politique exacte du vol de voix (bits de la clé) et limite éventuelle par slot.
-5. Les deux destinations de `hw_write` et la cadence des mises à jour.
+5. Les deux destinations de `hw_write` (les deux SHARC, 10 voix chacun [hyp. forte]) et
+   la fréquence de `synth_tick`.

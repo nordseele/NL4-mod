@@ -55,6 +55,7 @@
 0xc002ebfc voice_pitch_mod_update
 0xc002eff8 voice_pitch_tick
 0xc002f1cc voice_ctor
+0xc0032098 voice_apply_velocity
 0xc0033538 voice_morph_eval
 0xc00dee54 midi_routing_setup
 0xc00e107c app_midi_graph_ctor
@@ -72,10 +73,13 @@
 0xc011f62c targets_call_member
 0xc011fdcc midi_noteoff_dispatch
 0xc011fec8 midi_noteon_dispatch
+0xc011ffc4 midi_cc_in
 0xc01202ac midi_pressure_in
 0xc0120398 midi_bend_in
 0xc0121580 midi_note_handlers_ctor
 0xc013135c midi_subscribe
+0xc013730c spiflash_chip_erase
+0xc01374b4 spiflash_detect
 0xc013aae8 midi_tx_noteon
 0xc013c380 midi_rx_to_queue_noteon
 0xc013c588 midi_parser_init
@@ -83,6 +87,7 @@
 0xc013e6c4 usbmidi_port_ctor
 0xc013e7f0 usbmidi_rx_packets2
 0xc013e930 usbmidi_rx_packets
+0xc014c4a0 spiflash_create
 0xc014f0d0 hw_write
 0xc0181ac8 pure_virtual
 0xc0181b24 operator_new
