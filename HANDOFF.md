@@ -1,6 +1,20 @@
 # HANDOFF — état du projet NL4 MPE
 
-Dernière mise à jour : 2026-11-18.
+Dernière mise à jour : 2026-11-18 (fin de session, commit `0b217da` et suivant).
+
+## Reprise dans une nouvelle conversation
+
+1. Lire ce fichier, puis `docs/voices-midi.md` (notes de recherche détaillées).
+2. Vérifier que le conteneur tourne : `docker ps --filter name=pyghidra-nl4` (sinon
+   `docker start pyghidra-nl4`). Les outils MCP `pyghidra-nl4` se chargent au démarrage
+   de la session (`.mcp.json`).
+3. **Réimporter l'ELF dans Ghidra** : le programme du serveur date d'avant les derniers
+   noms. `list_project_binaries`, `delete_project_binary` sur l'ancien, puis
+   `import_binary /projects/bin/nl4_os132_full.elf`.
+4. Si `ghidra/bin/` est vide ou douteux : `tools/rebuild.sh`, puis régénérer le pseudo-C
+   (commande en tête de `tools/dump_decomp.py`, ≈ 5 min, en arrière-plan). Contrôle de
+   qualité : `grep -c 'Subroutine does not return' ghidra/bin/decomp.c` doit donner 0.
+5. Reprendre au **plan**, étape 1 (section « Plan » plus bas).
 
 ## Objectif
 
@@ -20,9 +34,9 @@ greffer le MPE.
 - [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
 - [~] Réception MIDI : chaîne complète jusqu'aux slots pour les contrôleurs (bend = n° 9,
   pression = n° 8), aiguillage par **masques de bits (port, canal)** par cible, donc un
-  slot peut déjà écouter plusieurs canaux. Notes : chemin connu jusqu'aux cibles, avec
-  **une zone par couple (port, canal)** et une table de 128 notes par zone. Reste le
-  lien cible → slot.
+  slot peut déjà écouter plusieurs canaux. Notes : chemin connu jusqu'au **Note On du
+  slot** (`slot_note_on`), avec **une zone par couple (port, canal)** et une table de
+  128 notes par zone dans les cibles. Reste le lien `slot_note_on` → gestionnaire de voix.
 - [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
   par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
   (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
@@ -67,8 +81,9 @@ Performance.
   le pitch stick n'agit que sur le slot actif hors Performance : **à vérifier sur
   l'instrument**.
 - **Sources de morph** : molette / pédale d'expression, vélocité, 3 boutons Impulse.
-  Le clavier n'a pas d'aftertouch. Pourtant la chaîne `AfterTouch` existe dans le
-  firmware : à vérifier si la pression MIDI entrante est reçue et à quoi elle sert.
+  Le clavier n'a pas de capteur d'aftertouch, mais la charte MIDI (p. 47) indique
+  Channel Aftertouch **transmis et reconnu** (Poly AT non). Dans le code, la pression
+  reçue devient le contrôleur interne n° 8 du slot ; ce qu'elle module reste à trouver.
 - Le menu MIDI a un « Pitch Bend Mode » (Sr / r / S / Off).
 
 ## Pistes dans le firmware
@@ -98,49 +113,59 @@ Il n'est **pas** dans `os.cab`.
   chargeur restant intact, donc récupérable), et le chargeur vérifie-t-il le checksum
   avant de lancer l'OS ?
 
-## À quel niveau mettre le MPE (hypothèses, à vérifier dans le code)
+## À quel niveau mettre le MPE
 
-1. **Sans toucher au firmware (« MPE léger », 4 voix).** Mettre le même programme dans
-   les 4 slots, en Mono, sur les canaux 2–5, Bend Range 48. Puis régler le contrôleur MPE
-   sur 4 canaux membres. On obtient du pitch bend par note sur 4 notes. Y/Z seulement si
-   un CC reçu par slot pilote le morph molette/pédale. **Testable dès maintenant, sans
-   risque.** C'est aussi un bon banc d'essai pour vérifier le comportement MIDI réel.
-2. **Une « zone MPE » au niveau d'un slot.** Un slot reçoit le canal maître + les canaux
-   membres. Chaque note prend une voix du réservoir de 20, et le bend / pression / CC74
-   d'un canal membre ne s'applique qu'à la voix de cette note. Ça colle au modèle MPE (une
-   zone = un timbre). Il faut :
-   - une allocation qui mémorise le canal d'origine de chaque voix ;
-   - un pitch bend par voix (sans doute déjà là : désaccord d'unisson, glide) ;
-   - une modulation continue par voix pour Y/Z. Le morph de vélocité est déjà par voix,
-     mais figé à l'attaque : piste à creuser.
-3. **Au niveau de la Performance** (2 zones MPE haute et basse ↔ split A+B / C+D) :
-   extension possible de l'option 2, plus tard.
+Retenu : **une zone MPE par slot**, et idéalement une zone au niveau de la Performance
+avec bascule automatique. Le « MPE léger » à 4 slots est écarté (déjà testé, pas le but).
 
-Questions bloquantes pour 2 et 3 : la structure d'une voix, et l'endroit où la synthèse
-calcule les paramètres par voix (et à quelle cadence).
+Ce que le code permet déjà, ou impose :
+- **Aiguillage** : masques de bits (port, canal) par cible → une zone = ajouter les
+  canaux membres 2–16 au masque du slot (`midi_routing_setup`, c00dee54).
+- **Cibles** : une zone par couple (port, canal), avec sa table de 128 notes → pas de
+  collision entre canaux à ce niveau si chaque canal membre est une zone.
+- **Obstacle 1** : plus loin, une note est identifiée par (slot, numéro de note), dans
+  l'allocateur et dans le tableau de touches du slot → y ajouter le canal.
+- **Obstacle 2** : bend (contrôleur 9) et pression (n° 8) sont mémorisés **par slot** →
+  les rendre par note / par voix.
+- **Piste Y/Z** : le morph de vélocité est calculé au Note On, au niveau du slot
+  (`slot_note_on`) → à rendre continu et par voix.
+- Le pitch est déjà calculé et écrit **voix par voix** par l'ARM (`voice_pitch_*`).
 
-## Prochaines étapes
+## Plan (validé avec l'utilisateur le 2026-11-18)
 
-1. Relier `slot_note_on` (c000f044) → objet `slot+0x20` (`fn_c0012e0c`) →
-   `note_event_handler`. Le chemin est connu des messages MIDI jusqu'au Note On du slot
-   (`slot_midi_input_ctor`, c00f1c5c). Le chemin Note On est connu jusqu'aux cibles et aux zones
-   (`docs/voices-midi.md`, « Chemin des notes »).
-2. Suivre le contrôleur 9 (bend) dans le slot : `cible->vt[0](cible, 9, valeur, 0)` →
-   mise à l'échelle par le Bend Range → hauteur des voix. C'est le point d'injection du
-   bend par note. Idem pour le n° 8 (pression) et les CC (CC74).
-3. Lire `midi_routing_setup` (c00dee54) en entier : quels champs portent les canaux
-   global / A–D / Soft Thru, et où ajouter les canaux membres d'une zone MPE.
-4. Détailler la clé de tri d'`alloc_core` (vol de voix) et la limite éventuelle par slot.
-5. Trouver l'application par voix du morph de vélocité, pour y brancher Y/Z.
-6. Identifier les deux destinations de `hw_write` et la cadence des mises à jour.
-7. Reproduire les checksums CODE / ARM0 (piste `CCRC32X` dans le programme Mac ;
-   l'en-tête de 0x20 octets d'ARM0 n'est pas nul et contient peut-être des métadonnées
-   de chargement).
+**Étape 1 — finir la cartographie (analyse, sans risque).** Ordre conseillé :
+1. **Chemin du bend** : `slot+4` (2ᵉ interface du slot) reçoit le contrôleur 9 →
+   application du Bend Range (1–12, 24, 48) → hauteur des voix (`voice_pitch_mod_update`).
+   Dira aussi à quels slots s'applique le pitch stick (Keyboard / Panel Focus).
+2. **Note On du slot → voix** : `slot_note_on` (c000f044) → objet `slot+0x20`
+   (`fn_c0012e0c`, 0x88 octets, qui pointe vers l'objet `fn_c0013344` de 0x460 octets)
+   → file d'événements → `note_event_handler` / `alloc_core`.
+3. **Pression (n° 8) et CC74** : ce qu'ils modulent aujourd'hui, et le chemin par voix
+   du morph de vélocité.
+4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
+   bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
+
+**Étape 2 — verdict de faisabilité.** Note de conception : modifications nécessaires,
+fonctions touchées, niveau (slot / Performance), ce qui est simple, risqué ou impossible
+(ex. si le moteur n'accepte pas de modulation continue par voix). Décision de l'utilisateur
+de continuer ou non.
+
+**Étape 3 — sécurité avant toute écriture (bloquant).**
+- Reproduire les checksums CODE / ARM0 (piste `CCRC32X` du programme Mac ; l'en-tête
+  d'ARM0 contient des métadonnées).
+- Comprendre la mise à jour : protocole `CITProtocol` du programme Mac, zones de flash
+  réécrites.
+- Voie de récupération : ouvrir le clavier (comme fait sur le Prophet 12), repérer la
+  flash SPI, **sauvegarder la flash complète au programmateur avant tout essai**.
+
+**Étape 4 — prototype progressif (seulement après l'étape 3).** Plus petit patch
+observable d'abord (un slot qui écoute plusieurs canaux), puis canal dans la clé, bend
+par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
 
 ## Méthode de travail qui marche
 
 - Ghidra (serveur MCP) pour les renommages et les vérifications ponctuelles. Pour
-  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 5 400 fonctions en pseudo-C) avec
+  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 5 000 fonctions en pseudo-C) avec
   grep / Python. C'est la référence de qualité : `tools/dump_decomp.py` désactive
   l'analyseur « Non-Returning Functions - Discovered ». Le serveur MCP, lui, garde
   l'analyse par défaut.
