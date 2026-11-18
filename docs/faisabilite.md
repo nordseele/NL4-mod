@@ -41,10 +41,10 @@ voix (pour Z).
 
 ### A. Zone MPE : faire écouter les canaux membres  — simple
 Ajouter les canaux 2 à 16 (zone basse) au masque du slot dans `midi_routing_setup`
-(c00dee54). Configuration : idéalement par le **message de configuration MPE**
-(RPN 6 sur le canal maître), que l'Osmose et le LinnStrument envoient. On l'intercepte
-dans `midi_cc_in` (CC 101 / 100 / 6) : **pas d'écran à ajouter** pour activer une zone.
-Reste un réglage pour choisir le slot (ou la Performance) qui reçoit la zone [à concevoir].
+(c00dee54). Activation : **une entrée du menu MIDI** (« MPE : Off / zone basse / zone haute »),
+pour ne dépendre d'aucun contrôleur. Le **message de configuration MPE** (RPN 6 sur le
+canal maître, intercepté dans `midi_cc_in`) peut s'y ajouter en confort, pas en
+dépendance. Prototype (paliers 2–3) : activé quand le canal global vaut 1 [rustine].
 
 ### B. Garder le canal d'une note  — moyen, le point le plus délicat
 Le canal disparaît à `target_note_on`, qui ne transmet que {note, vélocité}. Deux

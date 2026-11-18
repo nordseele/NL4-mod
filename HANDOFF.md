@@ -1,20 +1,46 @@
 # HANDOFF — état du projet NL4 MPE
 
-Dernière mise à jour : 2026-11-18 (fin de session, commit `0b217da` et suivant).
+Dernière mise à jour : 2026-11-18 au soir.
 
 ## Reprise dans une nouvelle conversation
 
-1. Lire ce fichier, puis `docs/voices-midi.md` (notes de recherche détaillées).
-2. Vérifier que le conteneur tourne : `docker ps --filter name=pyghidra-nl4` (sinon
-   `docker start pyghidra-nl4`). Les outils MCP `pyghidra-nl4` se chargent au démarrage
-   de la session (`.mcp.json`).
-3. **Réimporter l'ELF dans Ghidra** : le programme du serveur date d'avant les derniers
-   noms. `list_project_binaries`, `delete_project_binary` sur l'ancien, puis
-   `import_binary /projects/bin/nl4_os132_full.elf`.
-4. Si `ghidra/bin/` est vide ou douteux : `tools/rebuild.sh`, puis régénérer le pseudo-C
-   (commande en tête de `tools/dump_decomp.py`, ≈ 5 min, en arrière-plan). Contrôle de
-   qualité : `grep -c 'Subroutine does not return' ghidra/bin/decomp.c` doit donner 0.
-5. Reprendre au **plan**, étape 1 (section « Plan » plus bas).
+**Situation** : l'analyse (étapes 1 à 3) est faite ; quatre OS sont prêts à essayer
+(paliers 0 à 3, `docs/patches.md`). L'utilisateur les essaie sur l'instrument et
+apporte son rapport dans la nouvelle conversation. **Commencer par lire ce rapport** :
+
+| Résultat | Suite |
+|---|---|
+| L'updater re-signé ne se lance pas | regarder le message macOS ; essayer `xattr -cr` / signature ad hoc à la main, ou remplacer `os.cab` dans l'app officielle copiée |
+| Le clavier refuse le fichier (palier 1) | relire `CBinFile::Verify` côté Mac et le programme Update (inconnu) ; comparer avec `os.cab` officiel |
+| Palier 2 : les notes des canaux 2–16 ne jouent pas | les notes dépendent sans doute aussi des masques (`fn_c011c344` sur `+0x53C` et `+0x170+4i`, comme dans `midi_routing_setup`) : les ajouter |
+| Palier 2/3 : plantage au démarrage | mémoire (36 zones par cible) : baisser à 20 ou n'ajouter les membres que sur un port ; récupérer par Shift + Store + OS officiel |
+| Palier 3 marche | palier 4 : Y (CC74) → entrée vélocité de la voix (`voice_apply_velocity`, `midi_cc_in`), puis Z (pression, `midi_pressure_in`) |
+
+Mise en route technique :
+1. Lire ce fichier, `docs/patches.md`, `docs/faisabilite.md`, puis `docs/voices-midi.md`.
+2. Conteneur Ghidra : `docker ps --filter name=pyghidra-nl4` (sinon `docker start
+   pyghidra-nl4`). L'ELF importé porte tous les noms de `tools/symbols.txt` (99 noms).
+3. Image de compilation des patchs : `docker build -t nl4-arm tools/patch` si elle
+   manque. Construire : `docker run --rm -v "$PWD":/w nl4-arm python3 -I
+   tools/patch/build.py palier3`, puis `tools/patch/make_updater.sh build/palier3_os.cab`.
+4. Si `ghidra/bin/` est vide : `tools/rebuild.sh`, puis le pseudo-C (commande en tête de
+   `tools/dump_decomp.py`, en arrière-plan) ; contrôle : 0 « Subroutine does not
+   return ».
+5. Programmes SHARC : `tools/extract_sharc.py` et `docs/sharc.md` (projet Ghidra jetable
+   dans `ghidra/sharc_work/`, extension compilée dans le projet Prophet 12).
+
+**Activation du MPE dans les paliers 2–3** : uniquement par **canal MIDI global = 1**
+(pas par un message du contrôleur). Rustine de prototype : à remplacer par une entrée du
+menu MIDI (« MPE : Off / zone basse / zone haute »), le message de configuration MPE
+(RPN 6) pouvant s'y ajouter en confort, jamais en dépendance. Le système de menus reste à
+lire (piste : descripteurs de menu comme `fn_c010885c`, « Velocity Morph » / « Wheel
+Morph »).
+
+**Décisions prises** : prototype avec Y sur Velocity d'abord ; sources Y/Z distinctes
+plus tard (piste Impulse 6/7, `docs/faisabilite.md`) ; ensuite fonctions d'aide à la
+conversion d'un programme ; idée d'éditeur de programmes à étudier après le prototype
+(piste : contribuer le Lead 4 à OpenNord). Sauvegarde matérielle de la flash
+abandonnée (U38 vide, `docs/hardware.md`).
 
 ## Objectif
 
@@ -48,7 +74,8 @@ greffer le MPE.
 - [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
   par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
   (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
-- [ ] Où tourne la synthèse : indices de deux destinations matérielles (`hw_write`).
+- [x] Où tourne la synthèse : deux SHARC ADSP-21489, 10 voix chacun ; l'ARM écrit
+  leurs paramètres en mémoire par `hw_write` (`docs/sharc.md`).
 - [x] **Chemin du bend** (2026-11-18) : bend MIDI → paramètre 0x23 du slot → objet bend
   du moteur du slot (`engine+0x28C`), lissé sur 32 ticks → lu par chaque voix dans
   `voice_pitch_offset`, à côté du glide propre à la voix. **Courbe non linéaire
@@ -210,8 +237,9 @@ Reste à savoir comment donner le fichier à l'updater : remplacer
 `Contents/Resources/os.cab` dans une copie de l'application (signature à refaire en
 ad hoc si macOS refuse) **[à tester]**.
 
-**Prêts à essayer (2026-11-18)** : paliers 0, 1 et 2 (`docs/patches.md`). Le palier 2
-fait écouter les canaux 2 à 16 au slot en Keyboard Focus quand le canal global vaut 1.
+**Prêts à essayer (2026-11-18)** : paliers 0 à 3 (`docs/patches.md`). Le palier 2 fait
+écouter les canaux 2 à 16 au slot en Keyboard Focus quand le canal global vaut 1 ; le
+palier 3 y ajoute le bend par note ±48. Rien n'est encore essayé sur l'instrument.
 
 **Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
 modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode

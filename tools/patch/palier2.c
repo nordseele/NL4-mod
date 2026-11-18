@@ -9,6 +9,8 @@
 typedef unsigned char u8;
 typedef unsigned int u32;
 
+unsigned char g_mpe_on;                              /* zone MPE active (lu par le palier 3) */
+
 void zone_setup_orig(u8 *app);                       /* fn_c00df898 */
 void zone_add_follow(u8 *target, u32 port, u32 ch);  /* fn_c0112b2c : zone (port, canal), drapeau 1 */
 
@@ -16,7 +18,8 @@ __attribute__((section(".text.entry")))
 void mpe_zone_setup(u8 *app)
 {
     zone_setup_orig(app);
-    if (*(u32 *)(app + 0x1e8) != 0)          /* canal global ≠ 1 : rien de plus */
+    g_mpe_on = *(u32 *)(app + 0x1e8) == 0;
+    if (!g_mpe_on)                           /* canal global ≠ 1 : rien de plus */
         return;
     for (u32 slot = 0; slot < 4; slot++) {
         u8 *notes = *(u8 **)(app + 0x160 + 4 * slot) + 0x430;
