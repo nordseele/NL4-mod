@@ -29,6 +29,9 @@ le savoir et nos propres outils le sont.
 | `docs/faisabilite.md` | étape 2 : verdict, modifications, options Y/Z, plan du prototype | oui |
 | `tools/spiprobe.py` | sonde de flash SPI en lecture seule (Pico `pico-serprog`) | oui |
 | `tools/pack_oscab.py` | reconstruit `os.cab` (sections remplacées, LZO, sommes, vérification) | oui |
+| `tools/patch/` | patchs de l'OS : image Docker (GCC ARM), `build.py`, `palier2.c`, `make_updater.sh` | oui |
+| `docs/patches.md` | patchs, paliers, procédure d'essai sur l'instrument | oui |
+| `build/` | OS reconstruits et copies de l'updater | non |
 | `tools/extract_sharc.py` | extrait les deux programmes SHARC de l'OS (`ghidra/bin/sharc/`) | oui |
 | `docs/sharc.md` | code des SHARC : emplacement, format, import Ghidra | oui |
 | `ghidra/sharc_work/` | projet Ghidra SHARC (jetable) | non |

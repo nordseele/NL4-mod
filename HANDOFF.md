@@ -210,6 +210,9 @@ Reste à savoir comment donner le fichier à l'updater : remplacer
 `Contents/Resources/os.cab` dans une copie de l'application (signature à refaire en
 ad hoc si macOS refuse) **[à tester]**.
 
+**Prêts à essayer (2026-11-18)** : paliers 0, 1 et 2 (`docs/patches.md`). Le palier 2
+fait écouter les canaux 2 à 16 au slot en Keyboard Focus quand le canal global vaut 1.
+
 **Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
 modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode
 Shift + Store, et garder ce fichier prêt pour revenir en arrière. Puis le plus petit patch
