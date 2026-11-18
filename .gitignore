@@ -1,0 +1,14 @@
+# Logiciels, firmware et manuel Clavia : jamais dans git (droits d'auteur).
+# On garde le savoir (formats, adresses, notes), pas les copies. Tout se régénère avec tools/rebuild.sh.
+vendor/
+ghidra/bin/
+
+# Projet Ghidra (base locale du conteneur pyghidra-nl4, contient le firmware analysé)
+ghidra/nl4_ghidra.gpr
+ghidra/nl4_ghidra.rep/
+ghidra/nl4_ghidra.lock
+ghidra/nl4_ghidra.lock~
+ghidra/nl4_ghidra-pyghidra-mcp/
+
+__pycache__/
+.DS_Store
