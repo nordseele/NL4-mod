@@ -6,9 +6,11 @@ Layout (big-endian), worked out from the Lead 4 OS 1.32 file:
   0x00  u32 header size (0x20), u32 end of image 1, u32 start of image 2, u32 size of image 2
   image header: u32 0x00xx0100, u32 ?, u32 0x00640000, u32 0, u32 section count,
   then per section 0x2c bytes: tag[4], offset, size, load address, crc, packed size (0 = stored), packed crc, ...
-  Each section payload starts with 0x20 zero bytes; a CODE payload is LZO1X after those.
+  Each section starts with a 0x20-byte header (zeros, or metadata for ARM0) that is not
+  loaded; the payload follows and starts at the load address. A packed section is the
+  0x20-byte header, then LZO1X decoding to header + payload.
 """
-import os, struct, sys, zlib
+import os, struct, sys
 
 
 def lzo1x_decompress(src, pos=0):
@@ -120,12 +122,18 @@ def main(path, outdir):
                 data = (bytes(0x20) + data)[:size]
             else:
                 data = raw
-            name = f'img{img}_{tag}_{addr:08x}.bin'
-            open(os.path.join(outdir, name), 'wb').write(data)
             ok = 'OK' if len(data) == size else f'TAILLE {len(data):#x} != {size:#x}'
-            print(f'image {img} {tag} @ {addr:#010x}: {len(data):#x} octets ({ok})'
-                  f' crc32={zlib.crc32(data):08x} attendu? {crc:08x}'
-                  + (f' | flux crc32={zlib.crc32(raw):08x} attendu? {pcrc:08x}' if psize else ''))
+            # The first 0x20 bytes of a section are a header that is NOT loaded: the payload
+            # starts at the load address (checked: with this, 3310/3311 code pointers found in
+            # tables land on function starts; with the header kept, everything is 0x20 off).
+            hdr, payload = data[:0x20], data[0x20:]
+            name = f'img{img}_{tag}_{addr:08x}.bin'
+            open(os.path.join(outdir, name), 'wb').write(payload)
+            chk = (~sum(data)) & 0xffffffff
+            print(f'image {img} {tag} @ {addr:#010x}: section {len(data):#x} octets ({ok}),'
+                  f' charge utile {len(payload):#x} ; ~sum8 {chk:08x}'
+                  f' {"= en-tête" if chk == crc else "!= " + format(crc, "08x")}'
+                  + ('' if hdr == bytes(0x20) else f' ; en-tête non nul {hdr.hex()}'))
 
 
 if __name__ == '__main__':

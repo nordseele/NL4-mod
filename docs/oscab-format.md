@@ -51,6 +51,16 @@ Les adresses correspondent à la carte mémoire d'un TI OMAP-L138 / AM18xx (ARM9
 DSP C674x) : RAM partagée 0x80000000, DDR2 0xc0000000, RAM locale ARM et vecteurs hauts
 0xffff0000. ARM little-endian. Le point d'entrée (0xffff0040) fait `ldr pc, =0xc0000000`.
 
+## En-tête de section (0x20 octets, non chargé)
+
+Chaque section commence par 0x20 octets qui **ne sont pas chargés** : la charge utile
+qui suit démarre à l'adresse de chargement. En-tête nul pour SRAM et CODE ; pour ARM0,
+il contient des valeurs (img1 : `b540c07c 82030000 0200241a 13b0950a c1fc2e18 c0c43518
+c0010000 00110000`), rôle inconnu. Vérifié : avec cette règle, 3 737 entrées sur 3 738
+des tables de pointeurs de code tombent sur un début de fonction, et 353 chaînes sur
+364 sont pointées exactement ; en chargeant l'en-tête, tout est décalé de 0x20.
+`tools/unpack_oscab.py` écrit la charge utile seule.
+
 ## Compression : LZO1X
 
 Chaque section compressée commence par 0x20 octets nuls, puis un flux LZO1X standard
@@ -73,13 +83,13 @@ avec « input overrun », faute de marqueur de fin.
 - Le programme Mac contient `Zevs::CRC::CCRC32` / `CCRC32X` : piste pour le checksum
   du flux.
 
-## Hachés de référence (sortie de `tools/rebuild.sh`)
+## Hachés de référence (charges utiles, sortie de `tools/rebuild.sh`)
 
 ```
-img1_SRAM_80000000.bin  ac192273ba004b187adf0475c062cdd9029974eaf7dfeccbffb663b2fd9c5993
-img1_CODE_c0000000.bin  7f4154e78c568310c05a45ab7b127ca636fbe091f4c4aef088743a3e72abe6f5
-img1_ARM0_ffff0020.bin  da17bfd694820ae8cc325e83cabe0419cd4cec3c5176fc0fdd8c240f13460838
-img2_SRAM_80000000.bin  87d62557715c4475cd165ffc89b6c40d2b142a00597d95ec15a0e02da8890430
-img2_CODE_c0000000.bin  360e438940d654ba68da544b582f6d495e66ed8793a6376073b63b60543f6dbf
-img2_ARM0_ffff0020.bin  7ccb961ccf82cf57737b4b394c3c5f9e186a78970a73d16bf926238ef703d034
+img1_ARM0_ffff0020.bin  f331c6e6a89a749d4e72cf72468abb2b9dcf3c7b17228dea27ac20dea57dedba
+img1_CODE_c0000000.bin  8b417445b175995e77398d2012a67840249abdc7f8d4a3399373f246671010e6
+img1_SRAM_80000000.bin  c79b45785551a2bcb1c7a6376fa1b1d8555a4b3288da4c23e66fa0081d7ef597
+img2_ARM0_ffff0020.bin  40be0e0beec00cd3206f9addd01a71ab2f52007d5cdc5192e926063a89374555
+img2_CODE_c0000000.bin  756b74d8a411420ad430a0cb7259d8fa802f21fc041fd1ae4ae0c4d04dddd680
+img2_SRAM_80000000.bin  d1b3937d4bf59f56f759b0f24c61ab58fd9bf6db09cec7fe69cf2fa9e4b59150
 ```

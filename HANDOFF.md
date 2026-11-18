@@ -14,9 +14,13 @@ greffer le MPE.
 - [x] `os.cab` décodé : table des sections, compression LZO1X (`docs/oscab-format.md`).
 - [x] OS v1.32 complet décompressé (4,2 Mo de code ARM) et chargé dans Ghidra.
 - [x] La 2ᵉ image est identifiée : un firmware de test usine.
+- [x] **Adresses corrigées** : l'en-tête de 0x20 octets de chaque section n'est pas chargé.
+  Toutes les adresses de fonctions notées avant le commit qui suit `6c7f2fb` étaient
+  0x20 trop hautes (voir l'encadré de `docs/voices-midi.md`).
 - [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
-- [~] Réception MIDI : parseur trouvé, il transmet Poly AT, Channel Pressure et Pitch Bend
-  avec le canal. Le récepteur du Lead 4 (aiguillage canal → slot) reste à trouver.
+- [~] Réception MIDI : chaîne complète jusqu'aux slots pour les contrôleurs (bend = n° 9,
+  pression = n° 8), aiguillage par **masques de bits (port, canal)** par cible, donc un
+  slot peut déjà écouter plusieurs canaux. Le gestionnaire Note On reste à identifier.
 - [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
   par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
   (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
@@ -65,14 +69,15 @@ Performance.
 
 | Chaîne | Adresse | Référencée depuis |
 |---|---|---|
-| `Unison` | 0xc01ca3ac | table en 0xc01ca0fc / 0xc01ca10c |
-| `Legato` | 0xc01c91a0 | 0xc04050b4 |
-| `Polyphonic` | 0xc01ca310 | aucun pointeur direct trouvé |
-| ~~`Alloc State`~~ | 0xc01bdea0 | faux ami : table numérique (voir Méthode) |
+| `Unison` | 0xc01ca38c | 3 pointeurs |
+| `Legato` | 0xc01c9180 | 2 pointeurs |
+| `Polyphonic` | 0xc01ca2f0 | 1 pointeur |
+| `Alloc State` | 0xc01bde80 | `FUN_c0027670` → `fn_c001c77c(allocateur, "Alloc State")` : affichage de debug de l'allocateur |
 
-Autres repères : des fonctions très appelées (`FUN_c014f260`, 1 560 appels ; `FUN_c0181b44`,
-920) sont probablement des utilitaires (memcpy, printf…). Les chaînes `FFS…` désignent un
-système de fichiers en flash (programmes / performances). `WaveTable Version: 05`.
+Contrôle de la disposition corrigée : 353 chaînes sur 364 de la zone de données sont
+pointées exactement ; 3 737 entrées de tables de code sur 3 738 tombent sur un début de
+fonction. Les chaînes `FFS…` désignent un système de fichiers en flash (programmes /
+performances). `WaveTable Version: 05`.
 
 ## Bootloader
 
@@ -110,16 +115,20 @@ calcule les paramètres par voix (et à quelle cadence).
 
 ## Prochaines étapes
 
-1. Trouver le récepteur MIDI du Lead 4 (qui écrit `parser+0`), puis l'aiguillage
-   canal → slot et le traitement de 0xA0 / 0xD0 / 0xE0 / CC74. Pistes : les appelants
-   de `slot_controller_in` et de `slot_notes_update`, et le port DIN (`fn_c014c5b0`).
-2. Détailler la clé de tri d'`alloc_core` (politique exacte du vol de voix) et la limite
-   éventuelle de voix par slot.
-3. Trouver où le pitch bend reçu est mis à l'échelle (Bend Range) et ajouté à la hauteur
-   des voix : c'est le point d'injection du bend par note.
-4. Trouver l'application par voix du morph de vélocité, pour y brancher Y/Z.
-5. Identifier les deux destinations de `hw_write` et la cadence des mises à jour.
-6. Reproduire les checksums CODE / ARM0 (piste `CCRC32X` dans le programme Mac).
+1. Identifier le gestionnaire Note On / Note Off de l'application (abonnés de
+   `fn_c0121580` au type 0xc09140bc ; candidat `fn_c011a550`, masque `+0x68`), et
+   comment il passe du canal au slot puis à `note_event_handler`.
+2. Suivre le contrôleur 9 (bend) dans le slot : `cible->vt[0](cible, 9, valeur, 0)` →
+   mise à l'échelle par le Bend Range → hauteur des voix. C'est le point d'injection du
+   bend par note. Idem pour le n° 8 (pression) et les CC (CC74).
+3. Lire `midi_routing_setup` (c00dee54) en entier : quels champs portent les canaux
+   global / A–D / Soft Thru, et où ajouter les canaux membres d'une zone MPE.
+4. Détailler la clé de tri d'`alloc_core` (vol de voix) et la limite éventuelle par slot.
+5. Trouver l'application par voix du morph de vélocité, pour y brancher Y/Z.
+6. Identifier les deux destinations de `hw_write` et la cadence des mises à jour.
+7. Reproduire les checksums CODE / ARM0 (piste `CCRC32X` dans le programme Mac ;
+   l'en-tête de 0x20 octets d'ARM0 n'est pas nul et contient peut-être des métadonnées
+   de chargement).
 
 ## Méthode de travail qui marche
 
@@ -135,17 +144,22 @@ calcule les paramètres par voix (et à quelle cadence).
   cibles de `bl`, entrées de tables de pointeurs, et `push {…, lr}` **seulement** après
   un retour ou un saut. Un `push` en 2ᵉ position (`operator_new` commence par
   `cmp r0, #0`) ne doit pas devenir un début : il coupe la fonction en deux.
-- `tools/vtables.txt` liste des **tables de pointeurs vers du code**, pas toutes de vraies
-  vtables : environ un tiers seulement des entrées tombent sur un début de fonction.
-  Certaines pointent sur les `blx` de petites fonctions de relais. À utiliser avec
-  prudence.
+- `tools/vtables.txt` (généré par `tools/find_ptr_tables.py`) liste les tables de
+  pointeurs vers du code. Depuis la correction des adresses, 3 737 entrées sur 3 738
+  tombent sur un début de fonction. Une vtable C++ (ABI Itanium) se lit à `vptr` ; une
+  entrée en `sub r0, r0, #N ; b …` est un relais d'ajustement de `this` (héritage
+  multiple) vers la vraie méthode.
+- Le MIDI passe par un **bus d'abonnement** : ne pas chercher d'appels directs entre la
+  réception et les slots ; partir des types (0xc09140a8…e8) et de `midi_subscribe`.
 - Le CODE décompressé est validé : la bibliothèque officielle liblzo2 (Homebrew `lzo`)
   donne exactement les mêmes octets. Elle signale « input overrun » à la fin, faute de
   marqueur de fin LZO.
 - Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
   `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
-- Attention aux faux amis : `Alloc State` en 0xc01bdea0 n'est pas une chaîne, c'est une
-  table numérique de la conversion hauteur → fréquence.
+- Leçon : une adresse de fonction (position dans l'image) et une adresse lue dans un pool
+  de littéraux (valeur absolue) ne se vérifient pas de la même façon. Toujours contrôler
+  la disposition par des statistiques globales (pointeurs vers chaînes, entrées de
+  tables), pas sur quelques cas : c'est ainsi que le décalage de 0x20 a été trouvé.
 
 ## Risques
 
