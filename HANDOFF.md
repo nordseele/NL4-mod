@@ -41,6 +41,12 @@ greffer le MPE.
   par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
   (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
 - [ ] Où tourne la synthèse : indices de deux destinations matérielles (`hw_write`).
+- [x] **Chemin du bend** (2026-11-18) : bend MIDI → paramètre 0x23 du slot → objet bend
+  du moteur du slot (`engine+0x28C`), lissé sur 32 ticks → lu par chaque voix dans
+  `voice_pitch_offset`, à côté du glide propre à la voix. **Courbe non linéaire
+  au-delà de 2 demi-tons** (linéaire puis parabolique) : le MPE à ±48 demandera sa propre
+  échelle. Bend Range = paramètres moteur 0x21 (les deux sens) / 0x22 (vers le bas). Le
+  pitch stick du panneau : chemin non trouvé, à tester sur l'instrument.
 
 Détail : **`docs/voices-midi.md`**. Noms des fonctions : `tools/symbols.txt`.
 
@@ -134,14 +140,14 @@ Ce que le code permet déjà, ou impose :
 ## Plan (validé avec l'utilisateur le 2026-11-18)
 
 **Étape 1 — finir la cartographie (analyse, sans risque).** Ordre conseillé :
-1. **Chemin du bend** : `slot+4` (2ᵉ interface du slot) reçoit le contrôleur 9 →
-   application du Bend Range (1–12, 24, 48) → hauteur des voix (`voice_pitch_mod_update`).
-   Dira aussi à quels slots s'applique le pitch stick (Keyboard / Panel Focus).
+1. ~~Chemin du bend~~ : fait (`docs/voices-midi.md`, « Chemin du pitch bend »). Reste
+   le pitch stick du panneau : un test sur l'instrument suffit.
 2. **Note On du slot → voix** : `slot_note_on` (c000f044) → objet `slot+0x20`
    (`fn_c0012e0c`, 0x88 octets, qui pointe vers l'objet `fn_c0013344` de 0x460 octets)
    → file d'événements → `note_event_handler` / `alloc_core`.
-3. **Pression (n° 8) et CC74** : ce qu'ils modulent aujourd'hui, et le chemin par voix
-   du morph de vélocité.
+3. **Pression (n° 8) et CC74** : la pression pilote le paramètre 0x29 du slot à la
+   place de la molette quand `slot+0x260 == 2`. Reste ce qu'est 0x29 dans le moteur
+   (méthode c0023e48), le CC74, et le chemin par voix du morph de vélocité.
 4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
    bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
 
@@ -186,6 +192,11 @@ par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
 - Le CODE décompressé est validé : la bibliothèque officielle liblzo2 (Homebrew `lzo`)
   donne exactement les mêmes octets. Elle signale « input overrun » à la fin, faute de
   marqueur de fin LZO.
+- **Fonctions absentes du pseudo-C** : les méthodes des tables de paramètres
+  (`engine_param_handler`, `voice_param_handler`) ne sont atteintes que par des pointeurs
+  rangés dans des pools de littéraux, ou par un `b` final. Les graines ne les trouvent
+  pas : il faut les nommer à la main dans `tools/symbols.txt`. Pour lire une méthode,
+  prendre le n° de paramètre → la valeur du pool (`DAT_…`) → `disassemble` sur le serveur.
 - Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
   `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
 - Leçon : une adresse de fonction (position dans l'image) et une adresse lue dans un pool

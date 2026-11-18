@@ -245,19 +245,124 @@ Le relâchement (`note_off_release_voices`, c0026ae0) dépend du mode de la note
 
 ## Contrôleurs de jeu du slot
 
-`slot_controller_in` (c000fb8c) : méthode du slot, `switch` sur un numéro de contrôleur.
-Le slot hérite de trois interfaces (vtables en `0xc01bd738`, +0x60, +0x6C).
-`fn_c00f04a4` est un aiguillage de 77 paramètres (0–0x4C) agissant sur le slot :
-probablement l'arrivée des CC et des réglages du panneau.
+Le slot hérite de trois interfaces (vtables en `0xc01bd738`, +0x60, +0x6C). La 2ᵉ
+(`slot+4`, une seule méthode) reçoit les contrôleurs MIDI : relais
+`slot_midi_ctrl_in_thunk` (c000fb44, `sub r0, r0, #4`) → **`slot_midi_ctrl_in`**
+(c000fa58).
+
+`slot_controller_in` (c000fb8c) ne fait **pas** partie de ce chemin, malgré son nom : son
+`switch` (0–9) agit sur l'objet `slot+0x18`, et il est appelé à l'initialisation
+(`fn_c000fd80`). `fn_c00f04a4` est un aiguillage de 77 paramètres (0–0x4C) agissant sur le
+slot : probablement l'arrivée des CC et des réglages du panneau.
+
+### `slot_midi_ctrl_in(slot, n°, valeur)`  [sûr]
+
+Mémorise la valeur en `slot+0x224 + n° × 4` (>> 16), puis la convertit en **paramètre
+du slot** par `slot_set_param` :
+
+| contrôleur | paramètre du slot | condition |
+|---|---|---|
+| 5 (CC4) | 0x57 | |
+| 7 (molette) | 0x29 | `slot+0x260 == 1` |
+| **8 (pression)** | **0x29** (même destination que la molette) | `slot+0x260 == 2` |
+| **9 (bend)** | **0x23** | |
+| 10 (CC7) | 0x56 | |
+| 11 (CC10) | 0x55 | |
+
+`slot+0x260` (écrit par `fn_c000f510`) choisit donc **qui pilote le paramètre 0x29 : la
+molette ou la pression**. Ce paramètre est très probablement la source de morph
+« molette » (à confirmer). La pression ne fait rien si ce réglage vaut 1.
+
+### `slot_set_param(slot, n°, &valeur)` (c000f93c)  [sûr]
+
+Mémorise la valeur en `slot+0x2D4 + n° × 4`, puis consulte les drapeaux du paramètre
+(octet `slot+0x278 + n°`, 6 par défaut, 0xF pour 0x3E, 0x3F, 0x43) :
+- bit 2 : envoi au **moteur du slot**. `engine_param_convert` (c001e7dc) donne la
+  fonction de conversion, `engine_param_handler` (c001e26c, `switch` sur le n°) la
+  méthode qui l'applique ;
+- bit 4 : envoi à **chaque voix du slot**. Boucle sur les 20 voix de `0xc04b0040` ; une
+  voix est prise si elle appartient à ce slot et si son état (`+8`) vaut 3.
+  `voice_param_handler` (c0029678) donne la méthode de la voix ;
+- bit 8 : 2ᵉ envoi au moteur (avec le code 8) ;
+- bit 1 : traitement différé (file).
+
+Pour 0x23 (bend), `voice_param_handler` n'a **pas** de cas : c'est la méthode par défaut
+(c00333d0, un simple `bx lr`). **Le bend n'est jamais envoyé voix par voix**,
+seulement au moteur du slot.
+
+## Chemin du pitch bend  [sûr]
+
+```
+midi_bend_in (c0120398)
+  └─ target_controller_in(cible, port, canal, 9, valeur −8192…+8191)
+       ctrl_scale_in (c011f004) : < 0 → × 1024 ; ≥ 0 → × 0x1FC1 / 8, borné à 0x7F0000
+       └─ slot_midi_ctrl_in (c000fa58) → slot_set_param(slot, 0x23)
+            └─ engine_param_bend (c0022f40) → bend_set_value(engine + 0x28C, v)
+                 objet « bend » du slot : cible en +0xC
+  synth_tick (c0010c34), à chaque tick :
+     pour chaque slot actif : lissage +0x14 → +0xC en 32 pas (pas en +0x18)
+     puis pour les 20 voix : voice_pitch_tick (c002eff8) → voice_pitch_mod_update(voix, 0)
+          hauteur = voice_pitch_offset(voix + 0x590, engine + 0x28C)
+                  = bend lissé (+0x14) + transposition du slot + glide de la voix
+```
+
+**L'objet bend** (`slot_engine+0x28C`, créé par `bend_ctor`, c001c894) :
+`[0]` → structure de 0x21C octets, `[4]` = transposition du slot (octave × 12 + demi-tons
++ fin, méthodes c001cbbc / c001cbfc / c001cc3c). La structure contient :
+
+| champ | sens |
+|---|---|
+| +0x04 | plage vers le haut (demi-tons, 2 par défaut) |
+| +0x08 | plage vers le bas (demi-tons, 2 par défaut) |
+| +0x0C | bend cible (demi-tons en 16.16) |
+| +0x10 / +0x18 | dernière cible vue / pas du lissage |
+| +0x14 | bend lissé, **lu par toutes les voix du slot** |
+| +0x1C… | table de 128 valeurs (courbe cubique), recalculée par `bend_set_range` ; usage inconnu |
+
+**Bend Range** = paramètres du moteur : **0x21** (`engine_param_bend_range`, c0023208)
+règle les deux sens (`engine+0x250`), **0x22** (`engine_param_bend_down`, c0022fc0) le sens
+descendant seul (`engine+0x254`, cas asymétrique −12 / −24). Les deux appellent
+`bend_set_range` (c001c9d8). `slot_set_bend_range` (c000fb4c, entrée 15 de la vtable du
+slot) envoie 0x21 et 0x22 d'un coup.
+
+**Courbe** (`bend_set_value`, c001cb30), v = ±0x800000 (0x7F0000 est traité comme
++0x800000) :
+
+```
+bend = 2 × v / 0x800000                          (linéaire sur 2 demi-tons)
+     + (plage − 2) × (v / 0x800000)² × signe(v)  (parabolique au-delà)
+```
+
+**La courbe n'est pas linéaire au-delà de 2 demi-tons.** Avec une plage de 48, un bend à
+mi-course donne 1 + 46 / 4 = 12,5 demi-tons au lieu de 24. Le MPE suppose une
+correspondance linéaire (glissés de hauteur des contrôleurs), donc **le bend MPE aura
+besoin de sa propre échelle linéaire**. La résolution de 14 bits est conservée jusque-là.
+
+**Pour le MPE :**
+- **Point d'injection** : `voice_pitch_offset` (c001ccf4, 3 appelants :
+  `voice_pitch_mod_update`, `voice_pitch_tick` via celui-ci, et la mise en hauteur au
+  Note On `fn_c0032098`). Elle additionne déjà un terme **propre à la voix** : le glide
+  (`voix+0x590`, réglé par les paramètres de voix 0x26–0x28). Un bend par note
+  s'ajoute au même endroit : bend du slot remplacé (ou complété) par une valeur de la
+  voix, en échelle linéaire.
+- Le recalcul a déjà lieu **à chaque tick, pour les 20 voix**, quand un slot est actif.
+  `voice_pitch_mod_update` sort tôt si la valeur combinée n'a pas changé. Il n'y a donc
+  rien à ajouter pour la cadence : il suffit que la valeur par voix change.
+- Le lissage sur 32 ticks se fait par slot. Un bend par note voudra le sien (ou aucun, les
+  contrôleurs MPE envoyant des valeurs denses).
+- À déterminer : la durée d'un tick (fréquence de `synth_tick`).
 
 ## Questions ouvertes, par ordre d'utilité pour le MPE
 
 1. **Du graphe MIDI au slot** : cartographier `app_midi_graph_ctor` et la destination de
-   `cible->vt[0]`, jusqu'à `note_event_handler`. Vérifier sur l'instrument et dans le
-   code à quels slots s'applique le pitch stick (« Keyboard Focus » ou slot actif seul).
-2. **Pitch bend** : où le contrôleur 9 du slot est mis à l'échelle par le Bend Range
-   (1–12, 24, 48) et ajouté à la hauteur de ses voix — point d'injection du bend par note.
-3. **Pression (contrôleur 8)** et CC74 : ce qu'ils modulent aujourd'hui, et le chemin
-   par voix du morph de vélocité, pour y brancher Y/Z en continu.
+   `cible->vt[0]`, jusqu'à `note_event_handler`. **Pitch stick du panneau** : son chemin
+   n'est pas trouvé. Il n'emprunte pas `midi_bend_in` de façon visible, et
+   `midi_routing_setup` n'ajoute que le canal global. Le plus simple : tester sur
+   l'instrument (deux slots en Keyboard Focus hors Performance, bouger le stick).
+2. ~~Pitch bend~~ : fait (section « Chemin du pitch bend »).
+3. **Pression (contrôleur 8)** et CC74 : la pression pilote le paramètre 0x29 du slot si
+   `slot+0x260 == 2` (sinon c'est la molette). Reste à savoir ce qu'est 0x29 dans le
+   moteur (`engine_param_handler`, méthode c0023e48) et le chemin du CC74. Puis le
+   chemin par voix du morph de vélocité, pour y brancher Y/Z en continu.
 4. Politique exacte du vol de voix (bits de la clé) et limite éventuelle par slot.
 5. Les deux destinations de `hw_write` et la cadence des mises à jour.
