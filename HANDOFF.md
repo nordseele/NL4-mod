@@ -121,9 +121,9 @@ calcule les paramètres par voix (et à quelle cadence).
 
 ## Prochaines étapes
 
-1. Cartographier le graphe MIDI monté par `app_midi_graph_ctor` (c00e107c) : quelle cible
-   correspond à quel slot, et comment `cible->vt[0](3, {note, vélocité})` rejoint le slot
-   puis `note_event_handler`. Le chemin Note On est connu jusqu'aux cibles et aux zones
+1. Relier `slot_note_on` (c000f044) → objet `slot+0x20` (`fn_c0012e0c`) →
+   `note_event_handler`. Le chemin est connu des messages MIDI jusqu'au Note On du slot
+   (`slot_midi_input_ctor`, c00f1c5c). Le chemin Note On est connu jusqu'aux cibles et aux zones
    (`docs/voices-midi.md`, « Chemin des notes »).
 2. Suivre le contrôleur 9 (bend) dans le slot : `cible->vt[0](cible, 9, valeur, 0)` →
    mise à l'échelle par le Bend Range → hauteur des voix. C'est le point d'injection du

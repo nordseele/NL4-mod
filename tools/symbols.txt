@@ -1,3 +1,4 @@
+0xc000f044 slot_note_on
 0xc000f314 slot_ctor
 0xc000fb8c slot_controller_in
 0xc0010a44 synth_create_slots_and_voices
@@ -20,6 +21,8 @@
 0xc00dee54 midi_routing_setup
 0xc00e107c app_midi_graph_ctor
 0xc00f04a4 slot_param_in
+0xc00f1c5c slot_midi_input_ctor
+0xc01108fc note_target_set_dest
 0xc011129c target_note_on
 0xc0111424 target_note_off
 0xc0112b64 note_target_ctor

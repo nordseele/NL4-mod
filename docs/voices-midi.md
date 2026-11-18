@@ -141,8 +141,28 @@ et pour certaines une 3ᵉ partie à +0x53C. Tout est monté par `app_midi_graph
 - Une zone = un couple (port, canal). Déclarer chaque canal membre comme une zone de la
   même cible donnerait à chaque canal **sa propre table de 128 notes** : plus de
   collision entre canaux à ce niveau, sans changer la structure.
-- Il reste à savoir comment la sortie `vt[0]` atteint le slot et `note_event_handler`,
-  où la clé redevient (slot, note) **sans le canal**.
+- Il reste à savoir comment la sortie `vt[0]` atteint `note_event_handler`, où la clé
+  redevient (slot, note) **sans le canal**.
+
+### Des cibles au slot  [sûr]
+
+- `slot_midi_input_ctor` (c00f1c5c, n° de slot en paramètre) construit **l'entrée MIDI
+  d'un slot** : la partie notes a pour destination **le slot lui-même**
+  (`fn_c01108fc(partie notes, slot)`), la partie contrôleurs a pour destination la 2ᵉ
+  interface du slot (`slot + 4`).
+- Le 2ᵉ argument des méthodes de note est un **masque de destinations** : bit 1 = MIDI
+  OUT (classe `fn_c01289a4`, file de sortie par couple (port, canal)), autre bit = synthé
+  interne. Une 3ᵉ classe de destination (`fn_c00f8154`) ne fait que compter les notes
+  tenues (indicateur).
+- `slot->vt[0]` = **`slot_note_on`** (c000f044) : calcule pour la note les valeurs de
+  **morph de vélocité et de suivi de clavier** (`(note − 64) × 0x10000`,
+  `vélocité >> 3`, base + vélocité × quantité, bornées, pour chaque destination de
+  morph), les applique au moteur du slot, puis transmet la note à l'objet en `slot+0x20`
+  (`fn_c0012e0c`, 0x88 octets). Le lien de cet objet vers `note_event_handler` reste à
+  confirmer.
+- Conséquence pour le MPE : le morph de vélocité est **calculé au Note On, au niveau du
+  slot**. C'est un endroit naturel pour une modulation par note (Y/Z), à condition de
+  le rendre continu et par voix.
 
 ## Création des slots et des voix  [sûr]
 
