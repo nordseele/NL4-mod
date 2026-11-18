@@ -8,7 +8,14 @@ segs = []
 for a in sys.argv[4:]:
     path, addr = a.rsplit('@', 1)
     segs.append((open(path, 'rb').read(), int(addr, 16)))
-funcs = sorted({int(l, 16) for l in open(funcs_path) if l.strip()})
+# funcs file: one "0xADDR [name]" per line; unnamed entries become fn_ADDR
+names = {}
+for l in open(funcs_path):
+    p = l.split()
+    if p:
+        a = int(p[0], 16)
+        names[a] = p[1] if len(p) > 1 else names.get(a, f'fn_{a:08x}')
+funcs = sorted(names)
 
 EH, PH, SH = 52, 32, 40
 n = len(segs)
@@ -36,7 +43,7 @@ nlocal = len(syms)
 for va in funcs:
     s = sec_of(va)
     assert s, hex(va)
-    sym(f'fn_{va:08x}', va, 0x12, s)  # STB_GLOBAL, STT_FUNC
+    sym(names[va], va, 0x12, s)  # STB_GLOBAL, STT_FUNC
 symtab = b''.join(syms)
 
 names = [''] + [f'.seg_{a:08x}' for _, a in segs] + ['.symtab', '.strtab', '.shstrtab']

@@ -17,8 +17,11 @@ le savoir et nos propres outils le sont.
 | `tools/unpack_oscab.py` | lit `os.cab` et décompresse les sections LZO1X | oui |
 | `tools/mkelf.py` | emballe des sections brutes en ELF ARM, avec des symboles de départ, pour Ghidra | oui |
 | `tools/funcs_seed.txt` | adresses de départ de fonctions données à Ghidra | oui |
+| `tools/symbols.txt` | noms donnés aux fonctions identifiées (portés par l'ELF) | oui |
 | `tools/rebuild.sh` | régénère tout `ghidra/bin/` depuis le dmg | oui |
+| `tools/dump_decomp.py` | pseudo-C de toutes les fonctions → `ghidra/bin/decomp.c` (conteneur jetable) | oui |
 | `docs/oscab-format.md` | format de `os.cab`, sections, compression, checksums | oui |
+| `docs/voices-midi.md` | réception MIDI, slots, voix, allocateur (notes de recherche) | oui |
 | `vendor/` | dmg officiel, manuel PDF (+ `manual.txt`), binaire isolé | non |
 | `ghidra/bin/` | `os.cab`, sections décompressées, ELF complet | non |
 | `ghidra/nl4_ghidra.*` | projet Ghidra du conteneur `pyghidra-nl4` | non |

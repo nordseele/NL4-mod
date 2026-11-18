@@ -15,14 +15,27 @@ greffer le MPE.
 - [x] OS v1.32 complet décompressé (4,2 Mo de code ARM) et chargé dans Ghidra.
 - [x] La 2ᵉ image est identifiée : un firmware de test usine.
 - [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
-- [ ] Allocation des voix : pas encore étudiée dans le code.
-- [ ] Réception MIDI (canal → slot, pitch bend, pression, CC) : pas encore étudiée.
-- [ ] Où tourne la synthèse (ARM, DSP C674x interne, autre puce) : inconnu.
+- [~] Réception MIDI : parseur trouvé, il transmet Poly AT, Channel Pressure et Pitch Bend
+  avec le canal. Le récepteur du Lead 4 (aiguillage canal → slot) reste à trouver.
+- [~] Voix : 4 slots + réservoir global de 20 voix, structure de l'allocateur relevée,
+  hauteur calculée et écrite voix par voix. Cœur de l'allocation (`alloc_core`) pas lu.
+- [ ] Où tourne la synthèse : indices de deux destinations matérielles (`hw_write`).
+
+Détail : **`docs/voices-midi.md`**. Noms des fonctions : `tools/symbols.txt`.
+
+## Objectif MPE retenu (2026-11-18)
+
+Pas le « MPE léger » à 4 slots (déjà testé, pas le but). Visé : le plus de notes MPE
+possible (accords de 8 notes et plus), chaque note indépendante (X/Y/Z). Contrôleurs :
+Expressive E Osmose et LinnStrument. Idéal : une zone MPE par slot, et/ou une zone au
+niveau de la Performance avec bascule automatique quand le clavier est en mode
+Performance.
 
 ## Environnement
 
 - Conteneur `pyghidra-nl4` (port 8003), projet `ghidra/nl4_ghidra.gpr`, programme
-  `/nl4_os132_full.elf-0ddff2` (le suffixe change si on réimporte). Serveur MCP déclaré
+  `/nl4_os132_full.elf-<suffixe>` (le suffixe change à chaque import :
+  `list_project_binaries`). Serveur MCP déclaré
   dans `.mcp.json`. Les autres conteneurs pyghidra (octalab, p12, sharc) appartiennent à
   d'autres projets : **ne pas y toucher**.
 - Ghidra a choisi `ARM:LE:32:v8`. Le vrai cœur est un ARM926 (v5TE). Sans effet visible
@@ -54,10 +67,7 @@ greffer le MPE.
 | `Unison` | 0xc01ca3ac | table en 0xc01ca0fc / 0xc01ca10c |
 | `Legato` | 0xc01c91a0 | 0xc04050b4 |
 | `Polyphonic` | 0xc01ca310 | aucun pointeur direct trouvé |
-| `Alloc State` | 0xc01bde98 | aucun pointeur direct trouvé (nom de debug ?) |
-
-Les chaînes sans pointeur direct sont peut-être adressées par base + décalage. Il faut
-aussi chercher des références à l'intérieur des chaînes.
+| ~~`Alloc State`~~ | 0xc01bdea0 | faux ami : table numérique (voir Méthode) |
 
 Autres repères : des fonctions très appelées (`FUN_c014f260`, 1 560 appels ; `FUN_c0181b44`,
 920) sont probablement des utilitaires (memcpy, printf…). Les chaînes `FFS…` désignent un
@@ -99,15 +109,27 @@ calcule les paramètres par voix (et à quelle cadence).
 
 ## Prochaines étapes
 
-1. Trouver la réception MIDI : le parseur des octets d'état (0x80/0x90/0xB0/0xD0/0xE0),
-   puis la table canal → slot.
-2. Suivre la note-on jusqu'à l'allocation des voix : réservoir de 20, vol de voix,
-   unison / mono / legato.
-3. Trouver la structure d'une voix et ce qui la met à jour (pitch, morph de vélocité).
-4. Déterminer où tourne la synthèse : chercher du code C674x embarqué dans CODE ou un
-   protocole vers une autre puce.
-5. Reproduire les checksums CODE / ARM0 (piste `CCRC32X` dans le programme Mac).
-6. Tester le « MPE léger » sur le vrai clavier.
+1. Trouver le récepteur MIDI du Lead 4 (qui écrit `parser+0`), puis l'aiguillage
+   canal → slot et le traitement de 0xA0 / 0xD0 / 0xE0 / CC74.
+2. Lire `alloc_core` (c00198a4) : obtention des voix par slot, vol de voix, lien voix → note.
+3. Trouver où le pitch bend reçu est mis à l'échelle (Bend Range) et ajouté à la hauteur
+   des voix : c'est le point d'injection du bend par note.
+4. Trouver l'application par voix du morph de vélocité, pour y brancher Y/Z.
+5. Identifier les deux destinations de `hw_write` et la cadence des mises à jour.
+6. Reproduire les checksums CODE / ARM0 (piste `CCRC32X` dans le programme Mac).
+
+## Méthode de travail qui marche
+
+- Ghidra (serveur MCP) pour les renommages et les vérifications ponctuelles. Pour
+  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 6 600 fonctions en pseudo-C) avec
+  grep / Python.
+- L'analyse automatique de Ghidra rate les méthodes appelées seulement par vtable : il
+  faut lui fournir les débuts de fonctions (`tools/funcs_seed.txt`, tous les prologues
+  `push {…, lr}`).
+- Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
+  `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
+- Attention aux faux amis : `Alloc State` en 0xc01bdea0 n'est pas une chaîne, c'est une
+  table numérique de la conversion hauteur → fréquence.
 
 ## Risques
 
