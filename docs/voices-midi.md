@@ -30,7 +30,10 @@ USB-MIDI (paquets de 4 octets, CIN → longueur)
 | +0x30 | horloge / temps réel | |
 
 Le parseur transmet donc bien l'aftertouch polyphonique et la pression de canal, avec le
-canal. **Pas encore vu :** ce que le récepteur du Lead 4 en fait (ignoré, ou routé vers
+canal. La charte MIDI du manuel (p. 47) confirme : **Channel Aftertouch transmis et
+reconnu**, Poly Aftertouch (« Key's ») ni transmis ni reconnu, Pitch Bend transmis et
+reconnu. Pour le MPE, c'est exactement ce qu'il faut : Z = pression de canal, un canal
+par note. **Pas encore vu :** ce que le récepteur du Lead 4 en fait (ignoré, ou routé vers
 une modulation), ni où se fait l'aiguillage canal → slot. Le port est construit avec un
 récepteur nul (`usbmidi_port_ctor(…, 0)`) : le vrai récepteur est branché plus tard. Il
 reste à le trouver (chercher qui écrit le champ `parser+0`). Le port DIN a sans doute
@@ -98,6 +101,47 @@ Les listes de voix renvoyées font 20 entrées + un compteur en +0x50.
 
 `alloc_note_on` (c001b024) prépare et trie, puis appelle **`alloc_core` (c00198a4, 3,8 Ko)**,
 le cœur de l'allocation et du vol de voix. **Pas encore lu.**
+
+### Cœur de l'allocation (`alloc_core`)  [sûr pour la structure]
+
+- Réservoir de **64 notes** (entrées de 0x80 octets, index `& 0x3f`), distinct des 20 voix.
+- Nombre de voix par note passé à l'appel (`param_3[1]`) : 1 en poly, plus en unisson.
+- Les voix sont prises sur les notes en tête de la liste triée. La clé de tri (`+0x00`)
+  combine en bits l'état de la note, son âge (compteur global) et d'autres critères :
+  c'est le vol de voix.
+
+## Identité d'une note : (slot, numéro de note)  [sûr]
+
+C'est **le point clé pour le MPE**.
+
+- Les événements de note portent la clé en `+8` (**numéro de slot**, utilisé comme index
+  dans le tableau des slots) et `+0xC` (**numéro de note** ; la hauteur est calculée à
+  partir de `note − 64`).
+- L'allocateur recopie cette paire dans l'entrée de note (`+0x14`, `+0x18`).
+- Chaque slot tient aussi un **tableau de 128 touches** (`+0x1C`, une entrée par numéro de
+  note), avec le nombre de touches tenues (`+0x224`), la plus basse et la plus haute
+  (`+0x21C` / `+0x220`) : `slot_notes_update` (c00278a8).
+- Le canal MIDI n'apparaît nulle part dans cette identité.
+
+Conséquence : deux doigts sur la même hauteur et sur deux canaux membres (cas courant
+sur LinnStrument) seraient confondus. Pour le MPE, il faut ajouter le canal à la clé
+(par exemple `note | canal << 8` dans le second mot), en masquant partout où le numéro
+de note sert à calculer la hauteur, et donner au tableau de 128 touches une dimension
+« canal » (ou le remplacer par une liste).
+
+## Construction des voix d'une note
+
+`note_on_build_voices` (c00268f0) : pour chaque voix de la note,
+hauteur = `(note − 64 + décalage_i) × 0x10000`. La liste des décalages sert
+vraisemblablement au Chord Memory et à l'unisson. La voix est ensuite déclenchée par
+`fn_c0031ee4(voix, slot, …)`. Le relâchement (`note_off_release_voices`, c0026b00) prend
+un chemin différent selon le mode de la note (mono/legato contre poly).
+
+## Contrôleurs de jeu du slot
+
+`slot_controller_in` (c000fbac) : méthode du slot, `switch` sur un numéro de contrôleur
+0 à 9 (pitch stick, molette, pédale… à identifier). Le pseudo-C de cette fonction est en
+partie abîmé (table de sauts mal interprétée) : la lire au désassembleur.
 
 ## Questions ouvertes, par ordre d'utilité pour le MPE
 

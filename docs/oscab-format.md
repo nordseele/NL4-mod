@@ -58,6 +58,10 @@ Chaque section compressée commence par 0x20 octets nuls, puis un flux LZO1X sta
 inclut les 0x20 octets nuls. L'image 1 décode 1 octet de trop (dernier littéral), tronqué
 à la taille déclarée. L'image 2 tombe pile sur sa taille.
 
+Validé avec la bibliothèque de référence liblzo2 2.10 (`lzo1x_decompress_safe`) : mêmes
+octets que `tools/unpack_oscab.py`. Elle s'arrête 4 octets avant la taille déclarée,
+avec « input overrun », faute de marqueur de fin.
+
 ## Checksums : partiellement résolus
 
 - **SRAM** (images 1 et 2) : `~sum(octets) & 0xffffffff` sur la section entière. Exact.

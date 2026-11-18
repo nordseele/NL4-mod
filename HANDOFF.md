@@ -17,8 +17,9 @@ greffer le MPE.
 - [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
 - [~] Réception MIDI : parseur trouvé, il transmet Poly AT, Channel Pressure et Pitch Bend
   avec le canal. Le récepteur du Lead 4 (aiguillage canal → slot) reste à trouver.
-- [~] Voix : 4 slots + réservoir global de 20 voix, structure de l'allocateur relevée,
-  hauteur calculée et écrite voix par voix. Cœur de l'allocation (`alloc_core`) pas lu.
+- [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
+  par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
+  (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
 - [ ] Où tourne la synthèse : indices de deux destinations matérielles (`hw_write`).
 
 Détail : **`docs/voices-midi.md`**. Noms des fonctions : `tools/symbols.txt`.
@@ -110,8 +111,10 @@ calcule les paramètres par voix (et à quelle cadence).
 ## Prochaines étapes
 
 1. Trouver le récepteur MIDI du Lead 4 (qui écrit `parser+0`), puis l'aiguillage
-   canal → slot et le traitement de 0xA0 / 0xD0 / 0xE0 / CC74.
-2. Lire `alloc_core` (c00198a4) : obtention des voix par slot, vol de voix, lien voix → note.
+   canal → slot et le traitement de 0xA0 / 0xD0 / 0xE0 / CC74. Pistes : les appelants
+   de `slot_controller_in` et de `slot_notes_update`, et le port DIN (`fn_c014c5b0`).
+2. Détailler la clé de tri d'`alloc_core` (politique exacte du vol de voix) et la limite
+   éventuelle de voix par slot.
 3. Trouver où le pitch bend reçu est mis à l'échelle (Bend Range) et ajouté à la hauteur
    des voix : c'est le point d'injection du bend par note.
 4. Trouver l'application par voix du morph de vélocité, pour y brancher Y/Z.
@@ -121,15 +124,24 @@ calcule les paramètres par voix (et à quelle cadence).
 ## Méthode de travail qui marche
 
 - Ghidra (serveur MCP) pour les renommages et les vérifications ponctuelles. Pour
-  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 6 600 fonctions en pseudo-C) avec
-  grep / Python.
-- L'analyse automatique de Ghidra rate les méthodes appelées seulement par vtable : il
-  faut lui fournir les débuts de fonctions (`tools/funcs_seed.txt`, tous les prologues
-  `push {…, lr}`).
-- Effet secondaire des débuts de fonctions ajoutés : une fonction dont le `push` n'est pas
-  la 1re instruction est coupée en deux (ex. `voice_ctor` « size=8 », suivie de
-  `fn_c002f1f4`). Le pseudo-C reste lisible, mais le corps peut apparaître sous le nom
-  de la seconde moitié.
+  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 5 400 fonctions en pseudo-C) avec
+  grep / Python. C'est la référence de qualité : `tools/dump_decomp.py` désactive
+  l'analyseur « Non-Returning Functions - Discovered ». Le serveur MCP, lui, garde
+  l'analyse par défaut.
+- Pourquoi cette option : `operator_new` appelle la routine qui lève `bad_alloc`, Ghidra
+  en déduit qu'`operator_new` ne revient jamais, et cesse de désassembler après chaque
+  `new` (des centaines de fonctions tronquées, « Subroutine does not return »).
+- Débuts de fonctions (`tools/funcs_seed.txt`, généré par `tools/find_func_starts.py`) :
+  cibles de `bl`, entrées de tables de pointeurs, et `push {…, lr}` **seulement** après
+  un retour ou un saut. Un `push` en 2ᵉ position (`operator_new` commence par
+  `cmp r0, #0`) ne doit pas devenir un début : il coupe la fonction en deux.
+- `tools/vtables.txt` liste des **tables de pointeurs vers du code**, pas toutes de vraies
+  vtables : environ un tiers seulement des entrées tombent sur un début de fonction.
+  Certaines pointent sur les `blx` de petites fonctions de relais. À utiliser avec
+  prudence.
+- Le CODE décompressé est validé : la bibliothèque officielle liblzo2 (Homebrew `lzo`)
+  donne exactement les mêmes octets. Elle signale « input overrun » à la fin, faute de
+  marqueur de fin LZO.
 - Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
   `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
 - Attention aux faux amis : `Alloc State` en 0xc01bdea0 n'est pas une chaîne, c'est une

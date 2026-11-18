@@ -17,6 +17,8 @@ le savoir et nos propres outils le sont.
 | `tools/unpack_oscab.py` | lit `os.cab` et décompresse les sections LZO1X | oui |
 | `tools/mkelf.py` | emballe des sections brutes en ELF ARM, avec des symboles de départ, pour Ghidra | oui |
 | `tools/funcs_seed.txt` | adresses de départ de fonctions données à Ghidra | oui |
+| `tools/find_func_starts.py` | génère `funcs_seed.txt` (cibles de `bl`, prologues, tables) | oui |
+| `tools/vtables.txt` | tables de pointeurs vers du code (vtables et autres) | oui |
 | `tools/symbols.txt` | noms donnés aux fonctions identifiées (portés par l'ELF) | oui |
 | `tools/rebuild.sh` | régénère tout `ghidra/bin/` depuis le dmg | oui |
 | `tools/dump_decomp.py` | pseudo-C de toutes les fonctions → `ghidra/bin/decomp.c` (conteneur jetable) | oui |
