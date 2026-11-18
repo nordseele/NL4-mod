@@ -158,6 +158,14 @@ Ce que le code permet déjà, ou impose :
   du canal) et recalculer la voix.
 - Le pitch est déjà calculé et écrit **voix par voix** par l'ARM (`voice_pitch_*`).
 
+## SHARC (exploration du 2026-11-18, `docs/sharc.md`)
+
+Deux programmes SHARC dans l'OS ARM (0xc03c5720, 0xc03d9334), extraits par
+`tools/extract_sharc.py`, ouverts avec l'extension compilée du projet Prophet 12. Le
+SHARC est un moteur dont l'ARM écrit les paramètres en mémoire (paires
+[cmd|adresse, valeur] par `hw_write`), lissés à chaque bloc : **rien à modifier côté
+SHARC pour le MPE**.
+
 ## Plan (validé avec l'utilisateur le 2026-11-18)
 
 **Étape 1 — finir la cartographie (analyse, sans risque).** Ordre conseillé :
@@ -177,7 +185,8 @@ Ce que le code permet déjà, ou impose :
 4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
    bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
 
-**Étape 2 — verdict de faisabilité.** Note de conception : modifications nécessaires,
+**Étape 2 — verdict de faisabilité : rédigé (`docs/faisabilite.md`), décision de
+l'utilisateur en attente.** Verdict : faisable par un patch ARM seul. Note de conception : modifications nécessaires,
 fonctions touchées, niveau (slot / Performance), ce qui est simple, risqué ou impossible
 (ex. si le moteur n'accepte pas de modulation continue par voix). Décision de l'utilisateur
 de continuer ou non.

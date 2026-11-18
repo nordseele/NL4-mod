@@ -12,3 +12,4 @@ ghidra/nl4_ghidra-pyghidra-mcp/
 
 __pycache__/
 .DS_Store
+ghidra/sharc_work/

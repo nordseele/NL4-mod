@@ -26,6 +26,11 @@ le savoir et nos propres outils le sont.
 | `docs/oscab-format.md` | format de `os.cab`, sections, compression, checksums | oui |
 | `docs/update-protocol.md` | protocole de mise à jour (programme Mac), modes du clavier, sûreté | oui |
 | `docs/hardware.md` | carte mère : puces, flash SPI, connecteur P5, récupération | oui |
+| `docs/faisabilite.md` | étape 2 : verdict, modifications, options Y/Z, plan du prototype | oui |
+| `tools/spiprobe.py` | sonde de flash SPI en lecture seule (Pico `pico-serprog`) | oui |
+| `tools/extract_sharc.py` | extrait les deux programmes SHARC de l'OS (`ghidra/bin/sharc/`) | oui |
+| `docs/sharc.md` | code des SHARC : emplacement, format, import Ghidra | oui |
+| `ghidra/sharc_work/` | projet Ghidra SHARC (jetable) | non |
 | `docs/voices-midi.md` | réception MIDI, slots, voix, allocateur (notes de recherche) | oui |
 | `vendor/` | dmg officiel, manuel PDF (+ `manual.txt`), binaire isolé | non |
 | `ghidra/bin/` | `os.cab`, sections décompressées, ELF complet | non |
