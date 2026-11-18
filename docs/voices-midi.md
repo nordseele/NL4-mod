@@ -108,8 +108,41 @@ slot par slot s'il est actif (`fn_c010bb1c(…, i)`).
   canal d'origine, retrouver la note active sur ce canal, et appliquer la valeur à ses
   voix seulement.
 
-Le gestionnaire Note On / Note Off côté application n'est **pas encore identifié**
-(candidats : abonnés de `fn_c0121580`, et `fn_c011a550` qui teste le masque `+0x68`).
+### Chemin des notes  [sûr jusqu'aux cibles]
+
+```
+type Note On (0xc09140bc)
+  └─ midi_note_handlers_ctor (c0121580) : 10 abonnements (Note On/Off, 4 types de CC…),
+     chacun via un relais d'ajustement de this (sub r0, r0, #N ; b …)
+       └─ midi_noteon_dispatch (c011fec8) / midi_noteoff_dispatch (c011fdcc)
+            └─ targets_call_member (c011f62c) : pour chaque cible de la liste,
+               appel d'un pointeur de fonction membre (ABI ARM {ptr, adj})
+                 └─ target_note_on (c011129c) / target_note_off (c0111424)
+```
+
+`target_note_on(cible, port, canal, note, vélocité)` :
+1. `target_find_zone` (c011ecc8) cherche le couple **(port, canal)** dans la liste de la
+   cible (`+0xF0` : nombre en +4, ports en +8, canaux en +0xC) → **index de zone** ;
+2. table des zones (`cible[0x31]`) : zone active, **plage de touches** (bornes basse et
+   haute = split) et **transposition** (décalage + octave × 12) → note finale ;
+3. table **[zone][note d'entrée] → note envoyée** (128 entrées par zone) : si la note
+   d'entrée est déjà tenue, un Note Off part d'abord ;
+4. envoi par `cible->vt[0](cible, 3, {note, vélocité})` (méthode redéfinie par la classe
+   dérivée). `target_note_off` relit la note mémorisée, l'éteint par `vt[1]` et remet −1.
+
+Les cibles (`note_target_ctor`, c0112b64) s'inscrivent dans une liste globale à la
+construction. Le nombre de zones est global (`*DAT_c0112d9c`). Ce sont des **objets
+composites** : partie contrôleurs (masque, `fn_c0114590`) à +0, partie notes à +0x430,
+et pour certaines une 3ᵉ partie à +0x53C. Tout est monté par `app_midi_graph_ctor`
+(c00e107c), dont `midi_routing_setup` remplit ensuite les masques (champs [0x52], [0x57],
+[0x58]+0x53C, [0x5C]).
+
+**Pour le MPE :**
+- Une zone = un couple (port, canal). Déclarer chaque canal membre comme une zone de la
+  même cible donnerait à chaque canal **sa propre table de 128 notes** : plus de
+  collision entre canaux à ce niveau, sans changer la structure.
+- Il reste à savoir comment la sortie `vt[0]` atteint le slot et `note_event_handler`,
+  où la clé redevient (slot, note) **sans le canal**.
 
 ## Création des slots et des voix  [sûr]
 
@@ -199,7 +232,9 @@ probablement l'arrivée des CC et des réglages du panneau.
 
 ## Questions ouvertes, par ordre d'utilité pour le MPE
 
-1. **Gestionnaire Note On / Note Off** côté application, et comment il choisit le slot.
+1. **Du graphe MIDI au slot** : cartographier `app_midi_graph_ctor` et la destination de
+   `cible->vt[0]`, jusqu'à `note_event_handler`. Vérifier sur l'instrument et dans le
+   code à quels slots s'applique le pitch stick (« Keyboard Focus » ou slot actif seul).
 2. **Pitch bend** : où le contrôleur 9 du slot est mis à l'échelle par le Bend Range
    (1–12, 24, 48) et ajouté à la hauteur de ses voix — point d'injection du bend par note.
 3. **Pression (contrôleur 8)** et CC74 : ce qu'ils modulent aujourd'hui, et le chemin

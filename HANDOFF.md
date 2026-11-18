@@ -20,7 +20,9 @@ greffer le MPE.
 - [ ] Checksums CODE / ARM0 pas encore reproduits (SRAM oui).
 - [~] Réception MIDI : chaîne complète jusqu'aux slots pour les contrôleurs (bend = n° 9,
   pression = n° 8), aiguillage par **masques de bits (port, canal)** par cible, donc un
-  slot peut déjà écouter plusieurs canaux. Le gestionnaire Note On reste à identifier.
+  slot peut déjà écouter plusieurs canaux. Notes : chemin connu jusqu'aux cibles, avec
+  **une zone par couple (port, canal)** et une table de 128 notes par zone. Reste le
+  lien cible → slot.
 - [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
   par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
   (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
@@ -60,6 +62,10 @@ Performance.
 - **Bend Range par programme** : 1–12, 24, 48, et asymétriques −12/−24 (2 vers le bas).
   Le ±48 du MPE existe donc déjà.
 - **Voice Mode** par programme : Poly, Mono, Legato, Unison (plusieurs niveaux), Glide.
+- Deux focus : **Keyboard Focus** (slots joués par le clavier, LED allumée) et **Panel
+  Focus** (un seul slot, LED clignotante, édité par le panneau). L'utilisateur pense que
+  le pitch stick n'agit que sur le slot actif hors Performance : **à vérifier sur
+  l'instrument**.
 - **Sources de morph** : molette / pédale d'expression, vélocité, 3 boutons Impulse.
   Le clavier n'a pas d'aftertouch. Pourtant la chaîne `AfterTouch` existe dans le
   firmware : à vérifier si la pression MIDI entrante est reçue et à quoi elle sert.
@@ -115,9 +121,10 @@ calcule les paramètres par voix (et à quelle cadence).
 
 ## Prochaines étapes
 
-1. Identifier le gestionnaire Note On / Note Off de l'application (abonnés de
-   `fn_c0121580` au type 0xc09140bc ; candidat `fn_c011a550`, masque `+0x68`), et
-   comment il passe du canal au slot puis à `note_event_handler`.
+1. Cartographier le graphe MIDI monté par `app_midi_graph_ctor` (c00e107c) : quelle cible
+   correspond à quel slot, et comment `cible->vt[0](3, {note, vélocité})` rejoint le slot
+   puis `note_event_handler`. Le chemin Note On est connu jusqu'aux cibles et aux zones
+   (`docs/voices-midi.md`, « Chemin des notes »).
 2. Suivre le contrôleur 9 (bend) dans le slot : `cible->vt[0](cible, 9, valeur, 0)` →
    mise à l'échelle par le Bend Range → hauteur des voix. C'est le point d'injection du
    bend par note. Idem pour le n° 8 (pression) et les CC (CC74).
