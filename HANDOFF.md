@@ -126,6 +126,10 @@ calcule les paramètres par voix (et à quelle cadence).
 - L'analyse automatique de Ghidra rate les méthodes appelées seulement par vtable : il
   faut lui fournir les débuts de fonctions (`tools/funcs_seed.txt`, tous les prologues
   `push {…, lr}`).
+- Effet secondaire des débuts de fonctions ajoutés : une fonction dont le `push` n'est pas
+  la 1re instruction est coupée en deux (ex. `voice_ctor` « size=8 », suivie de
+  `fn_c002f1f4`). Le pseudo-C reste lisible, mais le corps peut apparaître sous le nom
+  de la seconde moitié.
 - Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
   `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
 - Attention aux faux amis : `Alloc State` en 0xc01bdea0 n'est pas une chaîne, c'est une
