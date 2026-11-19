@@ -1,12 +1,15 @@
 # HANDOFF — état du projet NL4 MPE
 
-Dernière mise à jour : 2026-11-18 au soir.
+Dernière mise à jour : 2026-11-19.
 
 ## Reprise dans une nouvelle conversation
 
-**Situation** : l'analyse (étapes 1 à 3) est faite ; quatre OS sont prêts à essayer
-(paliers 0 à 3, `docs/patches.md`). L'utilisateur les essaie sur l'instrument et
-apporte son rapport dans la nouvelle conversation. **Commencer par lire ce rapport** :
+**Situation** : paliers 1 à 3 **essayés et réussis** sur l'instrument le 2026-11-19
+(bend par note ±48 sur les canaux 2 à 16 ; `docs/patches.md`, « Résultats des essais »).
+**Palier 4 essayé le 2026-11-19, semble marcher** (Y par note ; réglage du morph Velocity
+pénible, voir « Ergonomie de Y » dans `docs/patches.md`) : Y (CC74) des canaux 2 à 16 →
+`voice_apply_velocity` dans `synth_tick` (`build/palier4_os.app`, `docs/patches.md`).
+Après l'essai : Z (pression, `midi_pressure_in`, même schéma). Tableau de reprise d'origine :
 
 | Résultat | Suite |
 |---|---|
@@ -239,7 +242,9 @@ ad hoc si macOS refuse) **[à tester]**.
 
 **Prêts à essayer (2026-11-18)** : paliers 0 à 3 (`docs/patches.md`). Le palier 2 fait
 écouter les canaux 2 à 16 au slot en Keyboard Focus quand le canal global vaut 1 ; le
-palier 3 y ajoute le bend par note ±48. Rien n'est encore essayé sur l'instrument.
+palier 3 y ajoute le bend par note ±48. **Essayés le 2026-11-19 : tout marche**
+(updater re-signé, recompression, notes 2–16, bend par note). Quitter l'updater après
+chaque mise à jour.
 
 **Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
 modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode

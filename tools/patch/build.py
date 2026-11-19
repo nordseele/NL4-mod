@@ -28,6 +28,9 @@ SYMBOLS = {
     'midi_bend_in_orig': 0xc0120398,
     'notemap_has': 0xc0016504,
     'notemap_get': 0xc0016464,
+    'midi_cc_in_orig': 0xc011ffc4,
+    'synth_tick_orig': 0xc0010c34,
+    'voice_apply_velocity': 0xc0032098,
 }
 
 PALIER2 = {
@@ -36,22 +39,35 @@ PALIER2 = {
     'calls': [(0xc00e0540, 0xc00df898, 'mpe_zone_setup')],     # (site, original target, ours)
 }
 
+PALIER3 = {
+    'sources': ['palier2.c', 'palier3.c'],
+    'data': PALIER2['data'],
+    'calls': PALIER2['calls'],
+    # (address, original word, our symbol): pointers in data (vtables, literal pools)
+    'ptrs': [(0xc011ffac, 0xc011129c, 'mpe_target_note_on'),      # midi_noteon_dispatch
+             (0xc01bde58, 0xc00268d0, 'mpe_build_voices'),        # note manager vt[2]
+             (0xc01bde5c, 0xc00263b4, 'mpe_note_event'),          # note manager vt[3]
+             (0xc03bf32c, 0xc0120398, 'mpe_bend_in'),             # three MIDI rx vtables
+             (0xc03ed740, 0xc0120398, 'mpe_bend_in'),
+             (0xc03edc2c, 0xc0120398, 'mpe_bend_in')],
+    # (address, original word, our symbol): instruction replaced by `b ours`
+    'branches': [(0xc00119f8, 0xea005b60, 'mpe_queue_note_on'),   # tail call in slot_sink_note_on
+                 (0xc001ccf4, 0xe5913000, 'mpe_voice_pitch_offset')],  # replaces the function
+}
+
 PALIERS = {
     'palier2': PALIER2,
-    'palier3': {
-        'sources': ['palier2.c', 'palier3.c'],
-        'data': PALIER2['data'],
-        'calls': PALIER2['calls'],
-        # (address, original word, our symbol): pointers in data (vtables, literal pools)
-        'ptrs': [(0xc011ffac, 0xc011129c, 'mpe_target_note_on'),      # midi_noteon_dispatch
-                 (0xc01bde58, 0xc00268d0, 'mpe_build_voices'),        # note manager vt[2]
-                 (0xc01bde5c, 0xc00263b4, 'mpe_note_event'),          # note manager vt[3]
-                 (0xc03bf32c, 0xc0120398, 'mpe_bend_in'),             # three MIDI rx vtables
-                 (0xc03ed740, 0xc0120398, 'mpe_bend_in'),
-                 (0xc03edc2c, 0xc0120398, 'mpe_bend_in')],
-        # (address, original word, our symbol): instruction replaced by `b ours`
-        'branches': [(0xc00119f8, 0xea005b60, 'mpe_queue_note_on'),   # tail call in slot_sink_note_on
-                     (0xc001ccf4, 0xe5913000, 'mpe_voice_pitch_offset')],  # replaces the function
+    'palier3': PALIER3,
+    'palier4': {
+        'sources': PALIER3['sources'] + ['palier4.c'],
+        'data': PALIER3['data'],
+        'calls': PALIER3['calls'],
+        'ptrs': PALIER3['ptrs'] + [
+            (0xc03bf334, 0xc011ffc4, 'mpe_cc_in'),                    # three MIDI rx vtables
+            (0xc03ed748, 0xc011ffc4, 'mpe_cc_in'),
+            (0xc03edc34, 0xc011ffc4, 'mpe_cc_in'),
+            (0xc0000480, 0xc0010c34, 'mpe_synth_tick')],              # level-4 handler (init)
+        'branches': PALIER3['branches'],
     },
 }
 

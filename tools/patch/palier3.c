@@ -27,7 +27,7 @@ u8  *notemap_get(void *map, int *key);                                     /* c0
 
 static int g_chan = -1;                              /* canal de la note en cours */
 static u8  chan_of[4][128];                          /* canal + 1 de (slot, note) */
-static u8  voice_chan[32];                           /* canal + 1 de chaque voix */
+u8         voice_chan[32];                           /* canal + 1 de chaque voix */
 static int g_bend[16];                               /* bend par canal, −8192…8191 */
 
 int mpe_target_note_on(void *t, u32 port, u32 ch, u32 note, u32 vel)
