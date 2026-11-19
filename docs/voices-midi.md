@@ -481,6 +481,49 @@ quatre fonctions (`voice_morph_eval`, `voice_apply_velocity`, `engine_morph_eval
 qté Z par entrée) dans notre mémoire, et remplacer les deux fonctions de voix par les
 nôtres.
 
+### Sources de morph et entrées du moteur (2026-11-19)  [sûr sauf mention]
+- **Numéros des sources** **[hyp. forte]** : 0 = Wheel, 1 = Velocity, 2 à 8 = Impulse 1 à 7.
+  `prog_morph_amount_in` (vtable du programme 0xc03c0b10, entrée 6 ; copie pour la base
+  secondaire `fn_c00ef7ec`, `this` − 0x53c) reçoit (paramètre, source, quantité) et ne
+  transmet que la source 1 ; la fonction d'édition des morphs (c00eb378) appelle la même
+  méthode du modèle avec les sources 2 à 8.
+- **Descripteur de morph du moteur** (`moteur+0x270`, pointé par `voix[0x15]`) :
+  `[0]` nombre d'entrées, `[3]` entrées de 0x14 octets {base, qté Velocity, qté clavier,
+  min, max} partagées par les voix du slot, `[4]` sorties (brouillon partagé), `[5]`
+  vélocité, `[6]` clavier. Setters : c0011fa8 (qté Velocity), c0011fc0 (qté clavier),
+  c0011fd8 (min, max), `engine_morph_eval` (base).
+- **Table de morph de la voix** (`voix+0x48`, 90 entrées, `morph_table_ctor` dans
+  `voice_ctor`) : `voix[0x13]` = entrée clavier (hauteur), `voix[0x14]` = vélocité de la
+  note, `voix[0x15]` = descripteur du moteur, `voix[0x16]` = sorties de la voix.
+- `voice_apply_velocity` finit par `fn_c0022718(moteur)` puis un saut vers `fn_c002f898`
+  (6,7 Ko, ≈ 80 réglages des sous-objets), qui n'appelle aucun déclencheur d'enveloppe.
+  Celle-ci lit `voix+0x40` (courbe de vélocité) pour le gain d'ampli `voix+0x334` : piste
+  pour Z → Level.
+- **Modèle de paramètres du programme** : objet programme du slot s en `0xc04eb824[s]`
+  (constructeur `fn_c00ea050`, base `fn_c00e7660`), modèle en `+0x1a4`. Référence d'un
+  paramètre : `{modèle+0x30, n°}`. Lecture d'une quantité de morph :
+  `fn_c0118c24(modèle, &réf, source)` → `(*(modèle+0x14))->vt[0](n°, source)`. Écriture :
+  `modèle->vt[6](&réf, source, quantité, …)` (c00eb378, c00e4a70, c0108ecc).
+  `fn_c0116cdc` rend un objet dont `+8` est un masque des sources actives (`1 << source`).
+- **Le morph Wheel est calculé dans ce modèle**, pas dans le slot : la molette n'atteint le
+  moteur que par le paramètre 0x29 (`engine_param_wheel_morph`, une seule sortie globale :
+  molette² × `moteur+0x880` → `+0x878`, envoyée au SHARC). `prog_morph_amount_in` n'est
+  appelée qu'à l'édition ; au chargement, les quantités Velocity passent par `c00efbb4`
+  (réglage par n° de paramètre, appelant non trouvé).
+- Où la position de la molette multiplie la quantité, dans le modèle : toujours pas lu.
+
+### Aiguillage des CC et abonnés (2026-11-19)  [sûr]
+- Le parseur range un CC selon son numéro (`fn_c013cb68`) : 64 → type `0xc09140c4`, 66 →
+  `c8`, 67 → `cc`, 114 → `d0`, **tous les autres** (CC74 compris) → `0xc09140ac` ; les CC
+  identiques en attente sont fusionnés dans la file.
+- Abonnés : `fn_c0121938`, `fn_c0121c44`, `fn_c0122060` (deux fois), `fn_c0106344`,
+  `fn_c013da1c`. Chaque abonnement est un sous-objet de 3 mots ; le bus appelle l'entrée
+  [1] de **sa** vtable. Vtable principale (0xc03edc28) : [1] `midi_bend_in`, puis
+  pression et CC ; sous-objets : pression → relais `0xc0120390` (`sub r0, #12 ; b
+  midi_pressure_in`), CC → relais `0xc01202a4` (`sub r0, #24 ; b midi_cc_in`). Ces relais
+  sont partagés par les trois classes (0xc03bf3xx, 0xc03ed7xx, 0xc03edcxx). **Pour
+  intercepter les CC ou la pression, brancher le relais, pas l'entrée de vtable.**
+
 ### CC74  [sûr pour le récepteur]
 `midi_cc_in` (c011ffc4) reçoit les CC avec leur port et leur canal. Seuls les CC de jeu
 vont aux cibles par `target_controller_in` : CC1 → n° 7, CC4 → 5, CC7 → 10, CC10 → 11,

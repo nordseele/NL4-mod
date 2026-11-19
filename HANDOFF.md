@@ -9,7 +9,33 @@ Dernière mise à jour : 2026-11-19.
 **Palier 4 essayé le 2026-11-19, semble marcher** (Y par note ; réglage du morph Velocity
 pénible, voir « Ergonomie de Y » dans `docs/patches.md`) : Y (CC74) des canaux 2 à 16 →
 `voice_apply_velocity` dans `synth_tick` (`build/palier4_os.app`, `docs/patches.md`).
-Après l'essai : Z (pression, `midi_pressure_in`, même schéma). Tableau de reprise d'origine :
+**Palier 5** : Y → morph Wheel par voix (la vélocité reste celle de la note). 1ʳᵉ version
+essayée : stable, mais Y sans effet ; 2ᵉ version (quantités Wheel lues dans le modèle
+de paramètres du slot) : stable, Y toujours sans effet. Diagnostic : aucun effet, ce qui a mené à la
+**vraie cause** : les CC passent par un relais de sous-objet (`0xc01202a4`) qui saute
+directement à `midi_cc_in` ; le CC74 n'a jamais atteint notre code (paliers 4 et 5).
+**3ᵉ version (relais branché) essayée le 2026-11-19 : ça marche**, Y agit comme un morph
+Wheel par note, mais Y à 127 reste en dessous de la molette à fond, et la modulation va par paliers audibles.
+**Palier 6 essayé** : Z semble marcher (à mettre en option), échelle de Y correcte, mais
+artefacts insupportables (Y continu → recalcul complet de la voix à chaque pas).
+**Palier 7 essayé le 2026-11-19 : artefacts disparus** (`build/palier7_os.app`) : Y n'applique
+plus que les paramètres morphés, un par un, comme la molette. Reste à départager : Y à 127
+semble encore un peu en dessous de la molette à fond (contrôleur ou échelle).
+Z → Level décevant au palier 7. **Palier 8 essayé : semble fonctionner, mais décevant ; on
+s'arrête là** (Z → Wheel / Velocity en option du menu). Même note sur deux canaux : la plus
+récente vole le bend de l'autre. Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
+volume, Z = 0 retardé de 3 ticks (relâche). Ensuite : étude du menu MIDI (lecture seule),
+puis RPN 6 / RPN 0. Note de transfert pour un projet Nord Stage 2 : `docs/pour-nord-stage-2.md`.
+**Options voulues dans le menu MIDI** (décision de l'utilisateur, 2026-11-19) : destination
+de Y au choix Velocity, Wheel ou Cutoff direct ; même choix pour Z, plus Level. Toutes
+passent par le chemin paramètre par paramètre du palier 7. Aussi : courbes de réponse au choix
+pour Y et Z ; Z remplace ou multiplie la vélocité ; plage de bend réglable ; canaux A–D
+ignorés automatiquement en mode MPE. Palier 6 : Z (pression) → Level par
+note (gain d'ampli renvoyé au SHARC), Y et Z lissés, quantités Wheel sur 16 bits, variables
+déplacées au début du tas (`docs/patches.md`, « Palier 6 en détail »). Pendant les essais : canaux A–D sur Off
+(sinon collision avec les canaux membres). L'utilisateur préfère les essais à la main
+(`tools/mpe_test.py` existe). Ensuite : les options du menu MIDI (MPE Off / zone, Z → Level en option). Tableau de reprise
+d'origine :
 
 | Résultat | Suite |
 |---|---|
@@ -283,6 +309,10 @@ par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
   prendre le n° de paramètre → la valeur du pool (`DAT_…`) → `disassemble` sur le serveur.
 - Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
   `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
+- **Leçon (2026-11-19)** : remplacer un pointeur de vtable ne suffit pas. Un objet à
+  plusieurs sous-objets est appelé par la vtable **du sous-objet**, souvent un relais
+  `sub r0, r0, #N ; b méthode` qui saute directement. Chercher tous les chemins vers la
+  méthode (pointeurs **et** `b` / `bl`) avant de choisir où brancher.
 - Leçon : une adresse de fonction (position dans l'image) et une adresse lue dans un pool
   de littéraux (valeur absolue) ne se vérifient pas de la même façon. Toujours contrôler
   la disposition par des statistiques globales (pointeurs vers chaînes, entrées de

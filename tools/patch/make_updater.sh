@@ -14,6 +14,12 @@ trap 'hdiutil detach "$mp" >/dev/null; rmdir "$mp"' EXIT
 rm -rf "$APP"
 ditto "$mp/Update Nord Lead 4 OS v1.32.app" "$APP"
 cp "$CAB" "$APP/Contents/Resources/os.cab"
+# Own bundle id and name per copy: otherwise macOS brings an already-running copy to the front
+# instead of launching this one, and the previous OS gets flashed again.
+NAME=$(basename "$APP" .app)
+PL="$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.nordkeyboards.NordOSUpdate.$NAME" "$PL"
+/usr/libexec/PlistBuddy -c "Add :CFBundleName string $NAME" "$PL"
 xattr -cr "$APP"
 codesign --force --deep --sign - "$APP" 2>/dev/null
 codesign --verify --deep "$APP"
