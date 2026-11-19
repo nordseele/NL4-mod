@@ -29,6 +29,10 @@ static int g_chan = -1;                              /* canal de la note en cour
 static u8  chan_of[4][128];                          /* canal + 1 de (slot, note) */
 u8         voice_chan[32];                           /* canal + 1 de chaque voix */
 static int g_bend[16];                               /* bend par canal, −8192…8191 */
+#ifdef ALIAS
+int        g_off;                                    /* palier9.c : note − numéro joué */
+static signed char off_of[4][128], voice_off[32];   /* même écart par (slot, note), par voix */
+#endif
 
 int mpe_target_note_on(void *t, u32 port, u32 ch, u32 note, u32 vel)
 {
@@ -43,7 +47,12 @@ void mpe_queue_note_on(u32 slot, int *notes, u32 count, u32 *mask)
 {
     if (slot < 4)
         for (u32 i = 0; i < count; i++)
+        {
             chan_of[slot][notes[2 * i] & 0x7f] = g_chan < 0 ? 0 : g_chan + 1;
+#ifdef ALIAS
+            off_of[slot][notes[2 * i] & 0x7f] = g_off;
+#endif
+        }
     slot_queue_note_on_orig(slot, notes, count, mask);
 }
 
@@ -58,8 +67,12 @@ static void bind_voices(int *ev)
         u32 vidx = *(u32 *)(entry + 0x48 + i * 0x18);
         if (vidx < 20) {
             u32 num = VOICES[vidx][0];
-            if (num < 32)
+            if (num < 32) {
                 voice_chan[num] = chan_of[key[0]][key[1] & 0x7f];
+#ifdef ALIAS
+                voice_off[num] = off_of[key[0]][key[1] & 0x7f];
+#endif
+            }
         }
     }
 }
@@ -86,7 +99,11 @@ int mpe_voice_pitch_offset(int *glide, int *bend)
         if (num < 32) {
             u32 c = voice_chan[num];
             if (c >= 2 && c <= 16)
+#ifdef ALIAS
+                v += g_bend[c - 1] * BEND_UNIT + (voice_off[num] << 16);
+#else
                 v += g_bend[c - 1] * BEND_UNIT;
+#endif
         }
     }
     return v;

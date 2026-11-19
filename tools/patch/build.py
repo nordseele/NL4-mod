@@ -38,6 +38,7 @@ SYMBOLS = {
     'amp_gain_write': 0xc0061a08,
     'voice_morph_eval': 0xc0033538,
     'voice_param_handler': 0xc0029678,
+    'target_note_off_orig': 0xc0111424,
 }
 
 PALIER2 = {
@@ -98,6 +99,11 @@ PALIERS['palier7'] = dict(PALIERS['palier6'],                         # Y per pa
     sources=PALIER3['sources'] + ['palier7.c'])
 PALIERS['palier8'] = dict(PALIERS['palier7'],                         # playable Z -> Level
     sources=PALIER3['sources'] + ['palier8.c'])
+PALIERS['palier9'] = dict(PALIERS['palier8'],                         # same pitch on two channels
+    sources=['palier2.c', 'palier3alias.c', 'palier9.c'],
+    ptrs=[e for e in PALIERS['palier8']['ptrs'] if e[0] != 0xc011ffac] + [
+        (0xc011ffac, 0xc011129c, 'mpe9_target_note_on'),               # midi_noteon_dispatch
+        (0xc011feb0, 0xc0111424, 'mpe9_target_note_off')])             # midi_noteoff_dispatch
 PALIERS['palier5diag'] = dict(PALIERS['palier5'],                     # palier 5 + audible diagnostic
     sources=PALIER3['sources'] + ['palier5diag.c'],
     branches=[(0xc00119f8, 0xea005b60, 'mpe_queue_note_on'),
@@ -127,7 +133,7 @@ def compile_and_link(srcs, out, heap_bss=False):
     bss = '*(.bss*) *(COMMON)'
     with open(ld, 'w') as f:
         f.write(f'MEMORY {{ gap (rx) : ORIGIN = {CODE_END:#x}, LENGTH = {GAP_END - CODE_END:#x}\n'
-                f'         ram (rw) : ORIGIN = {HEAP:#x}, LENGTH = 0x1000 }}\n'
+                f'         ram (rw) : ORIGIN = {HEAP:#x}, LENGTH = 0x2000 }}\n'
                 'SECTIONS {\n  .text : { *(.text.entry) *(.text*) *(.rodata*) *(.data*) '
                 + ('} > gap\n  .hbss (NOLOAD) : { ' + bss + ' . = ALIGN(8); mpe_bss_end = .; } > ram\n'
                    if heap_bss else bss + ' } > gap\n')

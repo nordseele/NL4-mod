@@ -49,6 +49,7 @@ problème (essayé le 2026-11-19).
 | 6 | `build/palier6_os.app` | palier 5 + **Z (pression) → Level** par note, Y lissé, quantités Wheel sur 16 bits (remplace le palier 5) | `d3675dcd…29aa009b0` |
 | 7 | `build/palier7_os.app` | palier 6, mais Y n'applique que les paramètres morphés, un par un, comme la molette | `d7aa9d2c…a6e78e85bc9f1a55` |
 | 8 | `build/palier8_os.app` | palier 7, Z → Level jouable : Poly AT accepté, courbe Z², Z remplace la vélocité pour le volume, relâche préservée | `8e2a4db9…5ede0b8578d18721` |
+| 9 | `build/palier9_os.app` | palier 8 + **même hauteur sur plusieurs canaux** (note renumérotée, hauteur corrigée par voix) | `f877453a…3ee5d8a4` (2ᵉ version : Note Off répétable) |
 
 ### Palier 2 en détail (`tools/patch/palier2.c`)
 
@@ -295,6 +296,41 @@ corrige quatre causes probables :
 Prévu ensuite comme options du menu MIDI : courbes au choix pour Y et Z, et « remplace » ou
 « multiplie » la vélocité.
 
+### Palier 9 en détail (`tools/patch/palier9.c`, `palier3alias.c`, `alias.h`)
+
+Le firmware identifie une note par (slot, numéro) : le canal disparaît dès l'appel au slot
+(`docs/voices-midi.md`, « Identité d'une note »). Deux doigts sur la même hauteur faisaient
+une seule note, et `bind_voices` donnait aux deux voix le canal du plus récent (essai :
+« la plus récente vole le bend de l'autre »). Élargir l'identité des notes toucherait
+toutes les tables de 128 touches, l'arpégiateur, l'arbre des notes, la file et
+l'allocateur. Le palier 9 renumérote plutôt :
+
+- **Note On** (`mpe9_target_note_on`, pointeur `0xc011ffac`) : sur un canal membre, si
+  la hauteur est déjà tenue sur un autre canal membre, la note entre sous le numéro libre
+  le plus proche (n + 1, n − 1, n + 2… jusqu'à ± 12 ; `alias_on`). Un Note On répété sur
+  le même canal garde son numéro.
+- **Note Off** (`mpe9_target_note_off`, pointeur `0xc011feb0` vers `target_note_off`,
+  c0111424) : éteint le numéro réellement joué et le libère (`alias_off`).
+- **Hauteur** : l'écart (note − numéro joué) passe par `g_off` à `mpe_queue_note_on`, qui
+  le range par (slot, note) ; `bind_voices` le donne à chaque voix, et
+  `mpe_voice_pitch_offset` l'ajoute en demi-tons. L'entrée clavier du morph (voix[0x13] =
+  hauteur) suit, l'affichage et le suivi de clavier de l'arpégiateur non.
+- **Une fois par cible.** Le répartiteur (`c011fdcc` pour le Note Off, via `c011f62c`)
+  appelle `target_note_on` / `target_note_off` pour chaque cible. La 1ʳᵉ version libérait
+  l'alias au premier Note Off : les cibles suivantes éteignaient le numéro d'origine, et
+  les notes renumérotées restaient bloquées (essai du 2026-11-19). L'alias reste maintenant
+  connu jusqu'au Note On suivant de (canal, note), et il est réutilisé seulement s'il est
+  libre.
+- `test_alias.c` vérifie l'attribution sur le Mac, appels répétés compris :
+  `cc -o /tmp/t tools/patch/test_alias.c && /tmp/t`.
+
+**Limites.**
+- Seuls les canaux membres sont suivis : une note du canal 1 ou du clavier local sur la
+  même hauteur reste confondue.
+- Si les 25 numéros autour de la note sont pris, la note est confondue comme avant.
+- Ce qui dépend du numéro de note et non de la hauteur de la voix sera décalé d'un ou deux
+  demi-tons pour la note renumérotée **[hyp. : rien d'audible]**.
+
 ## Script d'essai (`tools/mpe_test.py`)
 
 Envoie des scénarios précis au clavier par USB (mido + python-rtmidi), comme un contrôleur
@@ -358,7 +394,12 @@ démarre pas : **allumer en tenant Shift + Store**, puis installer l'OS officiel
    plein volume, quelle que soit la vélocité de frappe. La relâche doit rester audible
    quand on lève le doigt. Si rien ne change, vérifier sur le contrôleur ce qu'il envoie
    pour Z (Channel Pressure ou Poly AT) et sa valeur minimale.
-10. Noter ce qui se passe et revenir à l'officiel si besoin.
+10. **Palier 9.** Tenir la même hauteur sur deux canaux, par exemple deux rangées du
+    LinnStrument. Attendu :
+    - chaque doigt garde son bend, son Y et sa pression ;
+    - les deux notes sont à la même hauteur ;
+    - lever un doigt n'éteint que sa note.
+11. Noter ce qui se passe et revenir à l'officiel si besoin.
 
 ## Résultats des essais (2026-11-19)
 
@@ -369,6 +410,8 @@ démarre pas : **allumer en tenant Shift + Store**, puis installer l'OS officiel
 | 3 | OK : notes des canaux 2 à 16, **bend par note indépendant**. |
 | 5 (3ᵉ version) | **OK** : Y (CC74) des canaux 2 à 16 agit comme un morph Wheel propre à chaque note. Deux défauts : Y à 127 n'atteint pas l'effet de la molette à fond, et la modulation va **par paliers audibles** (la molette est fluide). Corrigés au palier 6 [à essayer]. |
 | 6 | Z → volume par note : semble marcher (pas sûr ; à mettre en option). Échelle de Y : semble correcte maintenant. **Artefacts insupportables** quand le doigt bouge sur le pad : Y arrive en continu, et chaque pas recalculait toute la voix. Palier 7. |
+| 9 (2ᵉ version) | **OK** : même hauteur sur deux canaux, chaque note garde son expression, plus de notes bloquées. |
+| 9 (1ʳᵉ version) | **Notes bloquées** : l'alias était libéré au premier des Note Off envoyés à chaque cible. Corrigé (2ᵉ version, à essayer). |
 | 8 | Z → Level **semble fonctionner, mais décevant** comme mode de jeu. Décision : ne pas aller plus loin ; Z → Wheel ou Velocity viendra en option du menu. **Même note sur deux canaux** (essai) : la note la plus récente vole le bend de la plus ancienne (limite connue du palier 3). |
 | 7 (Z) | Z → Level décevant : on n'entend pas bien s'il agit, la vélocité semble prendre le dessus. Palier 8. |
 | 7 | **Artefacts disparus** : appliquer Y paramètre par paramètre, comme la molette, était la bonne voie. Impression que Y à 127 n'atteint pas encore tout à fait la molette à fond (contrôleur ou échelle, à départager). |

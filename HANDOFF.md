@@ -23,8 +23,14 @@ plus que les paramètres morphés, un par un, comme la molette. Reste à départ
 semble encore un peu en dessous de la molette à fond (contrôleur ou échelle).
 Z → Level décevant au palier 7. **Palier 8 essayé : semble fonctionner, mais décevant ; on
 s'arrête là** (Z → Wheel / Velocity en option du menu). Même note sur deux canaux : la plus
-récente vole le bend de l'autre. Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
-volume, Z = 0 retardé de 3 ticks (relâche). Ensuite : étude du menu MIDI (lecture seule),
+récente vole le bend de l'autre. **Reprise (nouvelle conversation, 2026-11-19)** : palier 9, 2ᵉ version, **essayé : OK** (même hauteur
+sur deux canaux, plus de notes bloquées) ; continuer l'étude du menu MIDI depuis `docs/menus.md` : trouver la liste des
+entrées, la navigation, la sauvegarde des réglages. Palier 9 et `docs/menus.md` pas encore
+commités.
+**Palier 9** (`build/palier9_os.app`) : même hauteur sur
+plusieurs canaux par renumérotation de la note (`docs/patches.md`, « Palier 9 en détail »).
+Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
+volume, Z = 0 retardé de 3 ticks (relâche). Ensuite : étude du menu MIDI (lecture seule, en cours : `docs/menus.md`),
 puis RPN 6 / RPN 0. Note de transfert pour un projet Nord Stage 2 : `docs/pour-nord-stage-2.md`.
 **Options voulues dans le menu MIDI** (décision de l'utilisateur, 2026-11-19) : destination
 de Y au choix Velocity, Wheel ou Cutoff direct ; même choix pour Z, plus Level. Toutes
