@@ -17,10 +17,21 @@ void zone_add_follow(u8 *target, u32 port, u32 ch);  /* fn_c0112b2c : zone (port
 __attribute__((section(".text.entry")))
 void mpe_zone_setup(u8 *app)
 {
+#ifdef PALIER11
+    /* Canaux A–D effectifs (app+0x1ec…0x1f8, 16 = Off, recopiés de leurs réglages par
+     * app_routing_update juste avant cet appel) : sur un canal membre, ils entreraient en
+     * collision avec la zone MPE. Ignorés le temps du MPE ; les réglages ne changent pas. */
+    if ((g_mpe_on = mpe10_read(app)))
+        for (u32 s = 0; s < 4; s++) {
+            u32 *c = (u32 *)(app + 0x1ec) + s;
+            if (*c - 1 < 15)                 /* canaux 2 à 16 (le global est déjà à Off) */
+                *c = 16;
+        }
+#endif
     zone_setup_orig(app);
-#ifdef PALIER10
+#if defined(PALIER10) && !defined(PALIER11)
     g_mpe_on = mpe10_read(app);              /* option MPE du menu MIDI (palier10.c) */
-#else
+#elif !defined(PALIER11)
     g_mpe_on = *(u32 *)(app + 0x1e8) == 0;
 #endif
     if (!g_mpe_on)                           /* canal global ≠ 1 : rien de plus */

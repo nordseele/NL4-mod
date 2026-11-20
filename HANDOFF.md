@@ -1,6 +1,6 @@
-# HANDOFF — état du projet NL4 MPE
+# HANDOFF — état du projet NL4 M (MPE pour le Nord Lead 4)
 
-Dernière mise à jour : 2026-11-19.
+Dernière mise à jour : 2026-11-20.
 
 ## Reprise dans une nouvelle conversation
 
@@ -46,8 +46,17 @@ des bits du réglage 0x21 (inutilisé). Entrées MIDI `P` (MPE Of/On), `r` (bend
 48/24/12/2), `y` (Y On/Of), `L` (Z On/Of), sauvegardées ; le MPE ne dépend plus du canal
 global. Si elle ne démarre pas : `build/palier9dead_os.app` dit si la zone morte est en
 cause. Une partie du code est dans une zone de code mort
-du firmware (`tools/find_dead_code.py`), seul risque nouveau. Ensuite : les autres options
-voulues (destinations Velocity / Cutoff, courbes, Z × vélocité, canaux A–D ignorés).
+du firmware (`tools/find_dead_code.py`), seul risque nouveau. **Palier 11** (`build/palier11_os.app`, `docs/patches.md`, « Palier 11 en détail », avec
+le tableau du menu) : destinations de Y (`y`) et de Z (`P`, pression) au choix (molette,
+vélocité, Filter Freq, Output Level pour Z), courbes (`C`, `H`), Z × vélocité (`v`), canaux
+A–D sur un canal membre ignorés en MPE ; le MPE passe sur `E`. 1ʳᵉ version essayée le
+2026-11-20 : Z → Filter Freq OK, Z → Level sans effet (gain d'ampli des paliers 6 à 10).
+2ᵉ version (lettres E / P, Wheel affiché `nO`) : Level toujours sans effet. Diagnostic
+relevé : `voix+0x3c` = vélocité, lue par la méthode du volume par voix en `voix+0x42c`.
+**3ᵉ version essayée : LE marche, ampleur trop faible (≈ 6 dB). 4ᵉ version (`1b7fb57c…`), essayée le 2026-11-20 : OK. `P.LE` = gain de volume de la voix × Z, renvoyé au SHARC par `c005ee84` (de 0 au volume normal) ; l'ancien mode devient `P.vL`.** 3ᵉ version (`f5db51f3…`) : Z écrit en `voix+0x42c`, puis cette méthode est
+rappelée. Essais de Z avec le LinnStrument en Channel Pressure ou Poly AT 7 bits (le mode
+14 bits passe peut-être par un CC, que notre code ne lit pas). Le trou après le CODE est plein (0xab8 / 0xad0) : la suite ira dans
+les zones mortes.
 **Palier 9** (`build/palier9_os.app`) : même hauteur sur
 plusieurs canaux par renumérotation de la note (`docs/patches.md`, « Palier 9 en détail »).
 Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
@@ -352,7 +361,8 @@ par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
   récupérer (mode de mise à jour, réécriture du chargeur ou non).
 - Droits : le firmware et les logiciels Clavia restent hors du dépôt. On ne publie que des
   notes, des formats et notre propre code (même ligne que
-  [opennord](https://github.com/simonflore/opennord), `docs/LEGAL.md`).
+  [opennord](https://github.com/simonflore/opennord)). Licence GPL v3 + exception, comme
+  P12 M (`LICENSE`, `LICENSE-EXCEPTION.md`).
 
 ## Idées pour après le MPE (proposées par l'utilisateur, 2026-11-18)
 

@@ -196,6 +196,15 @@ Menu MIDI, entrée par entrée :
 - Conséquence : nos réglages ajoutés à la table seront écrits **sans code de notre
   part**, au plus 2 s après un changement, comme les réglages d'origine.
 
-Reste à lire : les n° 0xc, 0x11, 0x12, 0x16 à 0x18 (sans effet sur le projet), et où
-sont rangés les canaux A–d des slots (page MIDI, `fn_c0101da8`) ; ce sera utile pour
-« canaux A–D ignorés en mode MPE ».
+## Canaux A–d des slots (2026-11-20)  [sûr]
+
+- Pas dans la table globale : chaque slot i a son propre modèle `app[0x53 + i]`
+  (`app+0x14c + 4i`), réglage n° 1. Lecture `fn_c00e2740(app, i, 1)`, molette
+  `fn_c00e2894(app, i, 1, …)` (entrée `fn_c0101da8`, vtable `0xc03c4350` : `[5]`
+  `fn_c0101be8`, `[13]` `fn_c0101ba8`).
+- `fn_c00e0960` (changement d'un canal) pose `app[0x1fe]` ; `app_routing_update` recopie
+  alors global et A–d (`app+0x1d4…0x1e4`) dans les canaux **effectifs** `app+0x1e8…0x1f8`
+  (A–d égal au global → 16 = Off), puis crée les zones (`fn_c00df898`) et les masques.
+  Le palier 11 met à Off (en mode MPE), dans ces champs effectifs, les A–d tombés sur un canal membre.
+
+Reste à lire : les n° 0xc, 0x11, 0x12, 0x16 à 0x18 (sans effet sur le projet).

@@ -26,13 +26,22 @@ static u32 mpe10_read(u8 *app);                      /* appelée par mpe_zone_se
 int g_bend_unit = 384;                               /* 8192 × unité = plage << 16 */
 #define BEND_UNIT g_bend_unit
 static u8 g_y_off, g_z_off;
+#ifdef PALIER11
+static u8 g_ydest, g_zdest, g_ycurve, g_zcurve, g_zmul;   /* palier11.c */
+enum { D_WHEEL, D_VEL, D_CUT, D_OFF, D_LEVEL, D_VLEV };   /* destinations de Y / Z */
+enum { C_LIN, C_SQ, C_SOFT };                        /* courbes */
+#endif
 
 #include "palier2.c"
 #include "palier3alias.c"
 #include "palier9.c"
 
 #define P_ID   0x21                                  /* réglage global qui porte nos options */
+#ifdef PALIER11
+#define NOURS  7
+#else
 #define NOURS  4
+#endif
 
 void *operator_new(u32 n);                                                       /* c0181b24 */
 int   global_step(u8 *app, u32 id, u32 src, u32 clamp, int delta);               /* c00e2824 */
@@ -45,16 +54,40 @@ u32   menu_entry_is_active(void *e);                                            
 void  event_done(int *ev);                                                       /* c0130218 */
 
 static const u16 bend_units[4] = { 384, 192, 96, 16 };            /* ±48, 24, 12, 2 */
+#ifdef PALIER11
+/* Palier 11 (bits du réglage 0x21 ; 0 = défaut = comportement du palier 10) :
+ *   E MPE bit 0 · r bend bits 1–2 · y destination de Y bits 3–4 · P destination de Z bits 5–7
+ *   C courbe de Y bits 8–9 · H courbe de Z bits 10–11 · v Z × vélocité bit 12
+ * Ordre du menu = ordre du tableau. nO = molette (Wheel), vE = Velocity, Fr = Filter Freq,
+ * LE = volume × Z, vL = Z à la place de la vélocité du volume (vL après Of : Of garde sa
+ * valeur sauvegardée) ; Li = linéaire, CA = carrée, dO = douce. */
+static const u8 shift[NOURS] = { 0, 1, 3, 8, 5, 10, 12 };
+static const u8 fmask[NOURS] = { 1, 3, 3, 3, 7, 3, 1 };
+static const u8 fmax[NOURS]  = { 1, 3, 3, 2, 5, 2, 1 };
+/* E = MPE, P = Z (pression) : un Z s'afficherait comme un 2, déjà pris par Local. */
+static const char labels[NOURS][2] = { "E", "r", "y", "C", "P", "H", "v" };
+static const char names[NOURS][6][3] = {
+    { "Of", "On" }, { "48", "24", "12", " 2" }, { "nO", "vE", "Fr", "Of" }, { "Li", "CA", "dO" },
+    { "LE", "nO", "vE", "Fr", "Of", "vL" }, { "CA", "Li", "dO" }, { "Of", "On" } };
+
+static u32 raw(u32 v, u32 k) { return v >> shift[k] & fmask[k]; }
+static u32 field(u32 v, u32 k) { u32 f = raw(v, k); return f > fmax[k] ? 0 : f; }  /* hors plage : défaut */
+#else
 static const u8 shift[NOURS] = { 0, 1, 3, 4 }, fmax[NOURS] = { 1, 3, 1, 1 };
 static const char labels[NOURS][2] = { "P", "r", "y", "L" };
 static const char names[NOURS][4][3] = {
     { "Of", "On" }, { "48", "24", "12", " 2" }, { "On", "Of" }, { "On", "Of" } };
 
 static u32 field(u32 v, u32 k) { return v >> shift[k] & fmax[k]; }
+#define raw field
+#endif
 static u32 g_force;                                  /* valeur + 1 imposée par la molette ; 0 = lire */
 
 #ifdef DIAG
 static u8 g_setups;                                  /* créations des zones vues (diagnostic) */
+#endif
+#ifdef DIAG11
+static u32 g_dvel, g_d3c, g_d3b0;                    /* dernière voix démarrée (palier11.c) */
 #endif
 
 static u32 mpe10_read(u8 *app)
@@ -64,8 +97,19 @@ static u32 mpe10_read(u8 *app)
 #endif
     u32 v = g_force ? g_force - 1 : global_get(app, P_ID);
     g_bend_unit = bend_units[field(v, 1)];
+#ifdef PALIER11
+    static const u8 zdest[6] = { D_LEVEL, D_WHEEL, D_VEL, D_CUT, D_OFF, D_VLEV }, zcurve[3] = { C_SQ, C_LIN, C_SOFT };
+    g_ydest = field(v, 2);                           /* D_WHEEL, D_VEL, D_CUT, D_OFF */
+    g_ycurve = field(v, 3);                          /* C_LIN, C_SQ, C_SOFT */
+    g_zdest = zdest[field(v, 4)];
+    g_zcurve = zcurve[field(v, 5)];
+    g_zmul = field(v, 6);
+    g_y_off = g_ydest == D_OFF;
+    g_z_off = g_zdest == D_OFF;
+#else
     g_y_off = field(v, 2);
     g_z_off = field(v, 3);
+#endif
     return field(v, 0);
 }
 
@@ -99,6 +143,19 @@ static void mpe10_format(u32 *e, u32 v, char *buf, u32 size)
         s = d;
     }
 #endif
+#ifdef DIAG11
+    /* Dernière note démarrée sur un canal membre, en hexadécimal : r = vélocité (voix[0x14]),
+     * y C P H = les 4 octets de voix+0x3c (fort → faible), v = voix+0x3b0 >> 16 (gain). */
+    static const char hex[] = "0123456789AbCdEF";   /* b, d : B et D ne s'affichent pas */
+    char d[3];
+    if (k >= 1 && k < NOURS) {
+        u32 n = k == 1 ? g_dvel : k == 6 ? g_d3b0 >> 16 : g_d3c >> (8 * (5 - k));
+        d[0] = hex[n >> 4 & 15];
+        d[1] = hex[n & 15];
+        d[2] = 0;
+        s = d;
+    }
+#endif
     for (; i + 1 < size && s[i]; i++)
         buf[i] = s[i];
     if (size)
@@ -118,10 +175,10 @@ void mpe10_turn(u32 *e, int *ev)                     /* comme fn_c0100a20 (PB Mo
     u8 *app = (u8 *)e[0x15];
     if (k < NOURS) {
         u32 v = global_get(app, P_ID);
-        int f = field(v, k), n = f + ev[3];
+        int f = field(v, k), n = f + ev[3], r = raw(v, k);    /* r ≠ f : champ hors plage */
         n = n < 0 ? 0 : n > fmax[k] ? fmax[k] : n;
-        if (n != f) {                                /* seul ce champ change */
-            int d = (n - f) * (1 << shift[k]);
+        if (n != r) {                                /* seul ce champ change */
+            int d = (n - r) * (1 << shift[k]);
             global_step(app, P_ID, 0xc08ee8b8, 1, d);
             /* L'application n'est pas prévenue du n° 0x21 (essai du 2026-11-20 : P.On n'agissait
              * qu'après un redémarrage) : refaire les zones ici, avec la nouvelle valeur. */

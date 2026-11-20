@@ -129,6 +129,7 @@ int  voice_morph_eval(u32 *o, u32 n);                /* c0033538 : valeur morph√
 void voice_param_handler(method *m, u32 *voice, u32 n);   /* c0029678 : m√©thode qui l'applique */
 #endif
 
+#ifndef PALIER11                                    /* palier11.c : Y et Z, destinations au choix */
 static void apply_y(u32 *v, u32 s, u32 yc)
 {
     int *desc = (int *)v[0x15];                      /* descripteur de morph du moteur */
@@ -211,3 +212,4 @@ void mpe_synth_tick(void)
     }
     g_was = now;
 }
+#endif

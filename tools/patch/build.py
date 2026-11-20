@@ -36,6 +36,7 @@ SYMBOLS = {
     'morph_get': 0xc0118c24,
     'midi_pressure_in_orig': 0xc01202ac,
     'amp_gain_write': 0xc0061a08,
+    'voice_level_write': 0xc005ee84,
     'voice_morph_eval': 0xc0033538,
     'voice_param_handler': 0xc0029678,
     'target_note_off_orig': 0xc0111424,
@@ -133,6 +134,10 @@ PALIERS['palier10'] = dict(PALIERS['palier9'],                       # MPE optio
             (0xc03c37f0, [0xfffffff4, 0, 0xc00fde84, 0xc0100a94]),       # its +0xc sub-object
             (0xc0100a94, [0xe240000c]),                                # its thunk: sub r0, #12
             (0xc03c029c, [0x21, 0, 0, 0x1f, 0, 0x100, 0xffffffff])])   # descriptor of 0x21
+# Y / Z destinations, curves, Z × velocity, A–D ignored: 13 option bits in 0x21 (palier10.c)
+PALIERS['palier11'] = dict(PALIERS['palier10'], sources=['palier11.c'],
+    data=PALIERS['palier9']['data'] + [(0xc03c02a4, 0, 0x1fff)])
+PALIERS['palier11diag'] = dict(PALIERS['palier11'], sources=['palier11diag.c'])  # voice+0x3c on the menu
 PALIERS['palier10diag'] = dict(PALIERS['palier10'], sources=['palier10diag.c'])  # state on the menu
 # Diagnostic: palier 9 with its two note wrappers moved into the dead range palier 10 uses.
 # Boots and plays like palier 9 if that range really is dead.
