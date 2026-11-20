@@ -1,7 +1,11 @@
-# NL4 M — MPE pour le Nord Lead 4
+# NL4 M
 
-**NL4 M** (dépôt `NL4-mod`) est une modification non officielle du firmware du Nord Lead 4
-de Clavia (Nord Keyboards), OS 1.32.
+### MPE for the Nord Lead 4
+
+**NL4 M** (repository `NL4-mod`) is an unofficial firmware modification for the Clavia
+(Nord Keyboards) Nord Lead 4, OS 1.32. It adds **MPE** (MIDI Polyphonic Expression):
+per-note pitch bend, pressure (Z) and timbre (Y, CC74) from an MPE controller such as a
+LinnStrument or an Osmose.
 
 > [!WARNING]
 > **Unofficial, experimental firmware — use at your own risk.** This project is
@@ -26,67 +30,82 @@ de Clavia (Nord Keyboards), OS 1.32.
 my direction: I set the goals, made the design decisions and reviewed the results. All
 hardware testing was done by me, on my own Nord Lead 4.
 
+## What it adds
 
-Étude du firmware du Nord Lead 4 (OS v1.32) pour comprendre l'allocation des voix et
-évaluer l'ajout d'un MPE complet : pitch bend par note (±48), pression (Z), timbre
-(Y, CC74).
+- **MPE Lower Zone:** member channels 2 to 16, in addition to the global channel.
+- **Per-note pitch bend**, range 48, 24, 12 or 2 semitones.
+- **Y and Z per note**, each routed to the Wheel morph, the Velocity morph or Filter
+  Freq directly; Z can also drive the voice level.
+- Response curves for Y and Z, and an option to scale Z by the note velocity.
+- Slot channels A–D that fall on a member channel are ignored while MPE is on.
+- All settings are new entries at the end of the **MIDI** menu, saved with the other
+  global settings. See [docs/patches.md](docs/patches.md), "Palier 11 en détail".
 
-Projet personnel d'interopérabilité, sans lien avec Clavia / Nord Keyboards. Le firmware,
-le logiciel et le manuel Nord ne sont **pas** dans ce dépôt (voir `.gitignore`). Seuls
-le savoir et nos propres outils le sont.
+The research notes in `docs/` and [HANDOFF.md](HANDOFF.md) are in French.
 
-**Pour reprendre le travail : lire [HANDOFF.md](HANDOFF.md).**
+## Repository layout
 
-## Arborescence
-
-| Chemin | Contenu | Dans git |
+| Path | Contents | In git |
 |---|---|---|
-| `tools/unpack_oscab.py` | lit `os.cab` et décompresse les sections LZO1X | oui |
-| `tools/mkelf.py` | emballe des sections brutes en ELF ARM, avec des symboles de départ, pour Ghidra | oui |
-| `tools/funcs_seed.txt` | adresses de départ de fonctions données à Ghidra | oui |
-| `tools/find_func_starts.py` | génère `funcs_seed.txt` (cibles de `bl`, prologues, tables) | oui |
-| `tools/find_ptr_tables.py` | génère `vtables.txt` (tables de pointeurs vers du code) | oui |
-| `tools/vtables.txt` | tables de pointeurs vers du code (vtables et autres) | oui |
-| `tools/symbols.txt` | noms donnés aux fonctions identifiées (portés par l'ELF) | oui |
-| `tools/rebuild.sh` | régénère tout `ghidra/bin/` depuis le dmg | oui |
-| `tools/dump_decomp.py` | pseudo-C de toutes les fonctions → `ghidra/bin/decomp.c` (conteneur jetable) | oui |
-| `docs/oscab-format.md` | format de `os.cab`, sections, compression, checksums | oui |
-| `docs/update-protocol.md` | protocole de mise à jour (programme Mac), modes du clavier, sûreté | oui |
-| `docs/hardware.md` | carte mère : puces, flash SPI, connecteur P5, récupération | oui |
-| `docs/faisabilite.md` | étape 2 : verdict, modifications, options Y/Z, plan du prototype | oui |
-| `tools/spiprobe.py` | sonde de flash SPI en lecture seule (Pico `pico-serprog`) | oui |
-| `tools/pack_oscab.py` | reconstruit `os.cab` (sections remplacées, LZO, sommes, vérification) | oui |
-| `tools/patch/` | patchs de l'OS : image Docker (GCC ARM), `build.py`, `palier2.c`, `make_updater.sh` | oui |
-| `docs/patches.md` | patchs, paliers, procédure d'essai sur l'instrument | oui |
-| `build/` | OS reconstruits et copies de l'updater | non |
-| `tools/extract_sharc.py` | extrait les deux programmes SHARC de l'OS (`ghidra/bin/sharc/`) | oui |
-| `docs/sharc.md` | code des SHARC : emplacement, format, import Ghidra | oui |
-| `ghidra/sharc_work/` | projet Ghidra SHARC (jetable) | non |
-| `docs/voices-midi.md` | réception MIDI, slots, voix, allocateur (notes de recherche) | oui |
-| `vendor/` | dmg officiel, manuel PDF (+ `manual.txt`), binaire isolé | non |
-| `ghidra/bin/` | `os.cab`, sections décompressées, ELF complet | non |
-| `ghidra/nl4_ghidra.*` | projet Ghidra du conteneur `pyghidra-nl4` | non |
-| `.mcp.json` | branche le serveur MCP Ghidra (`127.0.0.1:8003`) | oui |
+| `tools/unpack_oscab.py` | reads `os.cab` and decompresses its LZO1X sections | yes |
+| `tools/mkelf.py` | wraps raw sections into an ARM ELF with seed symbols, for Ghidra | yes |
+| `tools/funcs_seed.txt` | function start addresses given to Ghidra | yes |
+| `tools/find_func_starts.py` | generates `funcs_seed.txt` (`bl` targets, prologues, tables) | yes |
+| `tools/find_ptr_tables.py` | generates `vtables.txt` (tables of code pointers) | yes |
+| `tools/vtables.txt` | tables of code pointers (vtables and others) | yes |
+| `tools/symbols.txt` | names given to identified functions (carried by the ELF) | yes |
+| `tools/rebuild.sh` | regenerates all of `ghidra/bin/` from the dmg | yes |
+| `tools/dump_decomp.py` | pseudo-C of every function → `ghidra/bin/decomp.c` (throwaway container) | yes |
+| `tools/spiprobe.py` | read-only SPI flash probe (Pico `pico-serprog`) | yes |
+| `tools/pack_oscab.py` | rebuilds `os.cab` (replaced sections, LZO, checksums, verification) | yes |
+| `tools/patch/` | OS patches: Docker image (GCC ARM), `build.py`, `palier*.c`, `make_updater.sh` | yes |
+| `tools/extract_sharc.py` | extracts the two SHARC programs from the OS (`ghidra/bin/sharc/`) | yes |
+| `docs/oscab-format.md` | `os.cab` format, sections, compression, checksums | yes |
+| `docs/update-protocol.md` | update protocol (Mac program), keyboard modes, safety | yes |
+| `docs/hardware.md` | main board: chips, SPI flash, P5 connector, recovery | yes |
+| `docs/faisabilite.md` | feasibility study: verdict, changes, Y/Z options, prototype plan | yes |
+| `docs/patches.md` | patches, steps (« paliers »), test procedure on the instrument | yes |
+| `docs/sharc.md` | SHARC code: location, format, Ghidra import | yes |
+| `docs/voices-midi.md` | MIDI input, slots, voices, allocator (research notes) | yes |
+| `docs/menus.md` | System, MIDI and Sound menus | yes |
+| `build/` | rebuilt OS images and updater copies | no |
+| `ghidra/sharc_work/` | SHARC Ghidra project (throwaway) | no |
+| `vendor/` | official dmg, PDF manual (+ `manual.txt`), extracted binary | no |
+| `ghidra/bin/` | `os.cab`, decompressed sections, full ELF | no |
+| `ghidra/nl4_ghidra.*` | Ghidra project of the `pyghidra-nl4` container | no |
+| `.mcp.json` | connects the Ghidra MCP server (`127.0.0.1:8003`) | yes |
 
-## Mise en place
+## Setup
 
-1. Mettre `Update Nord Lead 4 OS v1.32.dmg` (téléchargé sur nordkeyboards.com) dans `vendor/`.
+1. Put `Update Nord Lead 4 OS v1.32.dmg` (downloaded from nordkeyboards.com) in `vendor/`.
 2. `tools/rebuild.sh`
-3. Conteneur Ghidra dédié (n'affecte pas les autres conteneurs pyghidra) :
+3. Dedicated Ghidra container (does not affect other pyghidra containers):
 
 ```bash
 docker run -d --name pyghidra-nl4 --restart unless-stopped -p 127.0.0.1:8003:8000 -e JAVA_TOOL_OPTIONS=-Duser.name=matthias -v "$PWD/ghidra":/projects ghcr.io/clearbluejar/pyghidra-mcp:sha-f43400b -t streamable-http -o 0.0.0.0 --project-path /projects/nl4_ghidra.gpr
 ```
 
-4. Dans Claude Code, importer `/projects/bin/nl4_os132_full.elf` avec l'outil
-   `import_binary` du serveur `pyghidra-nl4`.
+4. In Claude Code, import `/projects/bin/nl4_os132_full.elf` with the `import_binary`
+   tool of the `pyghidra-nl4` server.
 
-## Précaution
+## Build
 
-Rien dans ce dépôt n'écrit sur le clavier. Flasher un firmware modifié peut rendre le
-synthé inutilisable : voir la section risques de HANDOFF.md.
+```bash
+docker build -t nl4-arm tools/patch        # once: GCC ARM + python3-lzo
+docker run --rm -v "$PWD":/w nl4-arm python3 -I tools/patch/build.py palier11
+tools/patch/make_updater.sh build/palier11_os.cab
+```
 
-Ne pas partager le contenu de `build/`, `vendor/` ni `ghidra/` : il contient le firmware Clavia.
+This writes `build/palier11_os.app`, a copy of the official updater carrying the
+modified `os.cab`. The build and test procedure is in [docs/patches.md](docs/patches.md).
+
+## Caution
+
+Nothing in this repository writes to the keyboard by itself. Flashing a modified
+firmware can make the synth unusable: see the risks section of HANDOFF.md.
+
+Do not share the contents of `build/`, `vendor/` or `ghidra/`: they contain Clavia's
+firmware.
 
 ## Licence
 
