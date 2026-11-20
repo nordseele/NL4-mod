@@ -1,4 +1,31 @@
-# NL4 — MPE pour le Nord Lead 4
+# NL4 M — MPE pour le Nord Lead 4
+
+**NL4 M** (dépôt `NL4-mod`) est une modification non officielle du firmware du Nord Lead 4
+de Clavia (Nord Keyboards), OS 1.32.
+
+> [!WARNING]
+> **Unofficial, experimental firmware — use at your own risk.** This project is
+> not affiliated with or endorsed by Clavia DMI AB (Nord Keyboards), and it is
+> provided **as-is, with no warranty** (see the [GPL](LICENSE), sections 15-16).
+>
+> - Installing it **replaces the operating system of your Nord Lead 4.** If
+>   something goes wrong, you may have to restore the official OS (power on
+>   while holding Shift + Store, then run the official OS 1.32 updater), and in
+>   the worst case open the instrument and reprogram its flash memory.
+> - It **changes what the main processor sends to the DSPs** (per-voice
+>   level, filter and modulation). Test it at **low volume and without
+>   headphones** the first time.
+> - It has been tested on **one unit only.**
+> - **Back up your programs and performances first** (Nord Sound Manager), and
+>   check that you can start the instrument in Update mode (Shift + Store)
+>   before you install anything.
+>
+> You are responsible for what you install on your instrument.
+
+**How it was made.** The code was written by AI (Claude, through Claude Code), under
+my direction: I set the goals, made the design decisions and reviewed the results. All
+hardware testing was done by me, on my own Nord Lead 4.
+
 
 Étude du firmware du Nord Lead 4 (OS v1.32) pour comprendre l'allocation des voix et
 évaluer l'ajout d'un MPE complet : pitch bend par note (±48), pression (Z), timbre
@@ -58,3 +85,21 @@ docker run -d --name pyghidra-nl4 --restart unless-stopped -p 127.0.0.1:8003:800
 
 Rien dans ce dépôt n'écrit sur le clavier. Flasher un firmware modifié peut rendre le
 synthé inutilisable : voir la section risques de HANDOFF.md.
+
+Ne pas partager le contenu de `build/`, `vendor/` ni `ghidra/` : il contient le firmware Clavia.
+
+## Licence
+
+Copyright (c) 2026 nordseele.
+
+NL4 M is free software under the **GNU General Public License, version 3 or
+later** ([LICENSE](LICENSE)), with an additional permission
+([LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)) that allows combining it with
+the Nord Lead 4 firmware, which the GPL alone would not. In short: you may use,
+study, change and share this code; if you distribute a modified version, you
+must keep the copyright notices and publish your changes under the same terms.
+
+The licence covers the code in this repository only, not Clavia's firmware
+that the build modifies. "Nord", "Nord Lead" and "Clavia" are trademarks of
+their owners and are used here only to say which instrument this modification
+is for.

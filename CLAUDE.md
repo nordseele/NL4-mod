@@ -1,4 +1,4 @@
-# NL4 — MPE pour le Nord Lead 4
+# NL4 M — MPE pour le Nord Lead 4
 
 Lire d'abord `HANDOFF.md` (état, plan, procédure de reprise), puis `docs/voices-midi.md`.
 
@@ -15,5 +15,6 @@ Règles du projet :
   conteneurs pyghidra (autres projets).
 - Les noms de fonctions vont dans `tools/symbols.txt`, puis `tools/rebuild.sh` et
   réimport dans Ghidra.
-- Dépôt local uniquement, pas de remote.
+- Remote : `github.com/nordseele/NL4-mod`, **privé**. Ne pas le rendre public sans accord.
+  `hardware/` (photos de la carte) reste en local.
 - L'utilisateur écrit en français.

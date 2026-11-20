@@ -16,3 +16,6 @@ ghidra/sharc_work/
 
 # OS reconstruits (contiennent le firmware Clavia)
 build/
+
+# Photos de la carte et binaire du Pico : gardés en local
+hardware/
