@@ -1,4 +1,4 @@
-# NL4 MPE mod
+# NL4 MPE
 
 ### MPE for the Nord Lead 4
 
