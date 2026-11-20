@@ -18,7 +18,11 @@ __attribute__((section(".text.entry")))
 void mpe_zone_setup(u8 *app)
 {
     zone_setup_orig(app);
+#ifdef PALIER10
+    g_mpe_on = mpe10_read(app);              /* option MPE du menu MIDI (palier10.c) */
+#else
     g_mpe_on = *(u32 *)(app + 0x1e8) == 0;
+#endif
     if (!g_mpe_on)                           /* canal global ≠ 1 : rien de plus */
         return;
     for (u32 slot = 0; slot < 4; slot++) {
@@ -28,6 +32,10 @@ void mpe_zone_setup(u8 *app)
             if (!app[0x1fc + port])          /* port MIDI désactivé */
                 continue;
             for (u32 ch = 1; ch < 16; ch++) {
+#ifdef PALIER10
+                if (ch == *(u32 *)(app + 0x1e8))  /* canal global : a déjà sa zone */
+                    continue;
+#endif
                 zone_add_follow(notes, port, ch);
                 zone_add_follow(other, port, ch);
             }

@@ -50,6 +50,8 @@ problème (essayé le 2026-11-19).
 | 7 | `build/palier7_os.app` | palier 6, mais Y n'applique que les paramètres morphés, un par un, comme la molette | `d7aa9d2c…a6e78e85bc9f1a55` |
 | 8 | `build/palier8_os.app` | palier 7, Z → Level jouable : Poly AT accepté, courbe Z², Z remplace la vélocité pour le volume, relâche préservée | `8e2a4db9…5ede0b8578d18721` |
 | 9 | `build/palier9_os.app` | palier 8 + **même hauteur sur plusieurs canaux** (note renumérotée, hauteur corrigée par voix) | `f877453a…3ee5d8a4` (2ᵉ version : Note Off répétable) |
+| 10 | `build/palier10_os.app` | palier 9, **MPE réglé au menu MIDI** (P, r, y, L), sauvegardé ; ne dépend plus du canal global | `74acf1e8…91ac54d5` (3ᵉ version, **essayée : OK** ; 2ᵉ `b74493fb…` : démarre, `P` n'agit qu'après redémarrage ; 1ʳᵉ `5b3caf19…` : ne redémarre pas) |
+| 9 bis | `build/palier9dead_os.app` | diagnostic : palier 9 avec ses deux enveloppes de notes dans la zone morte du palier 10 | `d45724c1…6ae545b92` |
 
 ### Palier 2 en détail (`tools/patch/palier2.c`)
 
@@ -330,6 +332,100 @@ l'allocateur. Le palier 9 renumérote plutôt :
 - Si les 25 numéros autour de la note sont pris, la note est confondue comme avant.
 - Ce qui dépend du numéro de note et non de la hauteur de la voix sera décalé d'un ou deux
   demi-tons pour la note renumérotée **[hyp. : rien d'audible]**.
+
+### Palier 10 en détail (`tools/patch/palier10.c`, qui inclut les paliers 2, 3 et 9)
+
+Le MPE ne s'active plus par « canal global = 1 » mais par quatre entrées ajoutées **à la
+fin du menu MIDI** (après 8 ; molette pour y aller, Shift + molette pour changer) :
+
+| Lettre | Option (bits du réglage 0x21) | Valeurs (défaut en premier) | Effet |
+|---|---|---|---|
+| `P` | MPE (bit 0) | `Of`, `On` | zone basse : canaux 2 à 16 en membres, sur le slot en Keyboard Focus |
+| `r` | plage du bend (bits 1–2) | `48`, `24`, `12`, ` 2` | bend des canaux membres, en demi-tons |
+| `y` | Y (bit 3) | `On`, `Of` | Y (CC74) → morph Wheel par note ; `Of` : CC74 des membres ignoré |
+| `L` | Z (bit 4) | `On`, `Of` | Z (pression) → Level par note ; `Of` : pression des membres ignorée |
+
+**1ʳᵉ version (2026-11-20) : le clavier ne redémarrait plus.** Elle ajoutait 4 réglages
+(n° 0x22 à 0x25) à la table des réglages globaux. Cause, trouvée à la lecture :
+l'écouteur de ces réglages (objet de `fn_c00ee098`, constructeur de base `fn_c00e3f70`)
+range dans **son propre objet** des tableaux de 34 cases indexés par n° (un octet par n°
+en `+0x104`, des paires de mots en `+0x58`, et 0x22 en dur dans `fn_c00e3f70` et
+`fn_c00e2ab0`). Nos n° écrivaient au-delà, sur l'objet minuterie en `+0xe0` et son
+pointeur de rappel en `+0xec`. **Leçon : le nombre de réglages globaux est figé à 34.**
+
+**2ᵉ version.** Les quatre options sont des champs de bits du réglage **0x21** : il est
+sauvegardé sur 31 bits, mais son maximum vaut 0 dans l'OS 1.32 (toujours 0, aucun lecteur
+ni écrivain par n° dans le CODE). `build.py` passe ce maximum à 0x1f (`0xc03c02a4`). Ni la
+table ni l'enregistrement sauvegardé ne changent de forme ; l'OS officiel lit une valeur
+> 0 hors bornes et la ramène à 0 (les options reviennent alors aux défauts).
+
+Fonctionnement :
+- **Entrées** : `mpe10_menus_done` remplace le dernier appel de `menus_build`
+  (`0xc00fc0e8`). Chaque entrée est construite par le constructeur de PB Mode
+  (`fn_c01001f8`, objet agrandi à 0x64 octets, n° de l'option en `+0x60`), puis reçoit nos
+  copies des vtables de PB Mode : principale (molette `[5]`, formatage `[12]`, affichage
+  `[13]`) et sous-objet `+0xc` (relais de la molette). La molette ne change que son
+  champ : `global_step(app, 0x21, …, écart << décalage)`. `build.py` vérifie que les mots
+  recopiés et le descripteur de 0x21 sont ceux de l'image d'origine.
+- **Prise en compte** : après `global_step`, la molette pose `app[0x1fe]` et relance
+  `app_routing_update`, comme le fait le firmware pour le canal global ; `mpe_zone_setup`
+  relit les options (la nouvelle valeur lui est passée par `g_force`). Au démarrage, la
+  création des zones lit le réglage chargé. `mpe10_on_global` (pointeur `0xc03bf200`) fait
+  la même chose si l'application est prévenue du n° 0x21.
+  Le canal global n'est plus ajouté une 2ᵉ fois comme membre.
+- **Place** : le trou après le CODE ne suffit plus (0xaa8 octets sur 0xad0). Le reste
+  (0x2d0 octets) va dans du **code mort** du firmware, `0xc002d1f8`–`0xc002daa4`
+  (`DEAD` dans `build.py`), trouvé par `tools/find_dead_code.py` : aucun mot d'aucune
+  image ne pointe dedans, aucun branchement, chargement relatif au PC ni `adr` venu
+  d'ailleurs n'y arrive, et elle suit une fin de fonction. `build.py` répartit lui-même
+  les fonctions (le trou d'abord, puis les zones mortes), car
+  `ld --enable-non-contiguous-regions` plante ; les variables restent dans le trou ou le tas.
+- Contrôles : le palier 9 reconstruit est identique octet pour octet ; l'image du palier 10
+  ne diffère de l'originale que par les mots attendus, la zone morte utilisée et le code
+  ajouté.
+
+**À essayer** :
+1. Après la mise à jour : le clavier redémarre ; menu MIDI, molette jusqu'après 8 →
+   `P.Of`, `r.48`, `y.On`, `L.On`.
+2. `P` sur `On` : le MPE marche comme au palier 9, **quel que soit le canal global**
+   (garder A–D sur Off).
+3. `r` sur `12` puis ` 2` : plage du bend des canaux membres.
+4. `y` puis `L` sur `Of` : Y puis Z sans effet.
+5. Éteindre, rallumer : les quatre réglages sont gardés, et le MPE marche dès l'allumage.
+
+**Essai de la 2ᵉ version (2026-11-20)** : le clavier redémarre, les entrées s'affichent.
+`P.On` ne changeait rien jusqu'au redémarrage suivant ; après, les notes MIDI des canaux
+membres jouent. Le réglage est donc bien sauvegardé, mais l'application n'est pas prévenue
+d'un changement du n° 0x21 (elle ne reçoit sans doute que les n° auxquels elle est
+abonnée **[hyp.]**) : `mpe10_on_global` n'était pas appelé. **3ᵉ version** : la molette
+relance elle-même la création des zones (ci-dessus). Avec `P.Of`, il est normal que les
+canaux 2 à 16 ne jouent pas (seul le canal global est écouté).
+
+**Essai de la 3ᵉ version (2026-11-20) : même défaut** (`P.On` n'agit qu'après un
+redémarrage). Relire la relance (zones vidées puis recréées par `fn_c00df898`, cibles
+réactivées par le Keyboard Focus dans `midi_routing_setup`, `target_note_on` sans masque)
+ne montre aucune différence entre le démarrage et une relance. D'où une version de
+**diagnostic**, `build/palier10diag_os.app` (`palier10diag.c`, `4f93e105…ba80d8e77`) : au
+menu MIDI, `r` affiche le **nombre de zones** de la cible du slot A et `y` affiche
+**créations des zones (mod 16) | g_mpe_on**, en hexadécimal. Attendu : `r.02` à `r.04`
+avec `P.Of`, `r.20` environ avec `P.On` (2 zones d'origine + 30 nôtres) ; le 1ᵉʳ chiffre
+de `y` augmente à chaque relance, le 2ᵉ vaut 1 avec `P.On`.
+
+**Diagnostic relevé (2026-11-20)** : après redémarrage avec `P.Of` : `r.02`, `y.60` ;
+`P` passé sur `On` sans redémarrer : `r.20`, `y.71`. **La relance marche** : les 30 zones
+des canaux membres sont créées tout de suite et le MPE est actif. Le silence vient sans
+doute du programme d'essai : il a un morph sur la molette et n'est audible que molette
+levée ; Y par note s'ajoute à ce morph, la molette du panneau agit toujours sur le slot
+**[hyp., à confirmer avec un son audible molette en bas]**.
+
+**Essai final (2026-11-20) : OK.** Avec la version normale, `y` et `L` sur `On`, le
+programme joue depuis le LinnStrument comme au palier 9, et `P.On` agit sans
+redémarrage. Le défaut venait du programme d'essai et de `y` resté sur `Of`.
+
+**Si une version ne redémarre pas** : essayer `build/palier9dead_os.app`. C'est
+le palier 9 avec ses deux enveloppes de notes (Note On / Note Off des canaux membres)
+déplacées dans la même zone morte. S'il démarre et joue comme le palier 9, la zone morte
+est hors de cause ; sinon, c'est elle.
 
 ## Script d'essai (`tools/mpe_test.py`)
 

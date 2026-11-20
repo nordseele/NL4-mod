@@ -23,7 +23,9 @@ u8  *notemap_get(void *map, int *key);                                     /* c0
 
 #define NOTEMAP ((void *)0xc040f470)
 #define VOICES  ((u32 **)0xc04b0040)                 /* 20 voix ; voix[0] = numéro */
+#ifndef BEND_UNIT                                    /* palier10.c : plage choisie au menu */
 #define BEND_UNIT 384                                /* 8192 × 384 = 48 << 16 */
+#endif
 
 static int g_chan = -1;                              /* canal de la note en cours */
 static u8  chan_of[4][128];                          /* canal + 1 de (slot, note) */

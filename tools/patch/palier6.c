@@ -76,8 +76,13 @@ static u32 chan_value(u8 *msg, u8 *dst)              /* canal membre : garde la 
 
 u32 mpe_cc_in(void *self, u8 *msg)
 {
-    if (*(u32 *)(msg + 8) == 74 && chan_value(msg, g_y))
+    if (*(u32 *)(msg + 8) == 74 && chan_value(msg, g_y)) {
+#ifdef PALIER10
+        if (g_y_off)                                 /* Y coupé au menu : CC74 ignoré */
+            g_y[msg[5]] = 0;
+#endif
         return 1;
+    }
     return midi_cc_in_orig(self, msg);
 }
 
@@ -88,7 +93,13 @@ u32 mpe_pressure_in(void *self, u8 *msg)             /* +8 = -1 : Channel Pressu
 #else
     if (*(int *)(msg + 8) == -1 && chan_value(msg, g_z))
 #endif
+    {
+#ifdef PALIER10
+        if (g_z_off)                                 /* Z coupé au menu : pression ignorée */
+            g_z[msg[5]] = 0;
+#endif
         return 1;
+    }
     return midi_pressure_in_orig(self, msg);
 }
 

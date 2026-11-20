@@ -39,7 +39,21 @@ SYMBOLS = {
     'voice_morph_eval': 0xc0033538,
     'voice_param_handler': 0xc0029678,
     'target_note_off_orig': 0xc0111424,
+    'global_get': 0xc00e270c,
+    'global_step': 0xc00e2824,
+    'operator_new': 0xc0181b24,
+    'param_table_ctor_orig': 0xc010e4f0,
+    'app_on_global_orig': 0xc00e0a1c,
+    'app_routing_update': 0xc00e04cc,
+    'menu_page_add': 0xc0124cec,
+    'menu_list_show_page_orig': 0xc0124e7c,
+    'pb_entry_ctor': 0xc01001f8,
+    'menu_entry_is_active': 0xc0125514,
+    'event_done': 0xc0130218,
 }
+
+# CODE ranges nothing references (tools/find_dead_code.py): extra room once the gap is full.
+DEAD = [(0xc002d1f8, 0xc002daa4), (0xc0021388, 0xc0021a5c)]
 
 PALIER2 = {
     'sources': ['palier2.c'],
@@ -104,6 +118,26 @@ PALIERS['palier9'] = dict(PALIERS['palier8'],                         # same pit
     ptrs=[e for e in PALIERS['palier8']['ptrs'] if e[0] != 0xc011ffac] + [
         (0xc011ffac, 0xc011129c, 'mpe9_target_note_on'),               # midi_noteon_dispatch
         (0xc011feb0, 0xc0111424, 'mpe9_target_note_off')])             # midi_noteoff_dispatch
+PALIERS['palier10'] = dict(PALIERS['palier9'],                       # MPE options in the MIDI menu
+    sources=['palier10.c'],                                            # includes palier2/3alias/9
+    # global setting 0x21 (saved on 31 bits, max 0 in 1.32) carries our options: max -> 0x1f
+    data=PALIERS['palier9']['data'] + [(0xc03c02a4, 0, 0x1f)],
+    calls=PALIER2['calls'] + [(0xc00fc0e8, 0xc0124e7c, 'mpe10_menus_done')],   # end of menus_build
+    ptrs=PALIERS['palier9']['ptrs'] + [
+        (0xc03bf200, 0xc00e0a1c, 'mpe10_on_global')],                  # app: global setting changed
+    dead=DEAD,
+    # words palier10.c relies on, checked against the original image
+    checks=[(0xc03c37b0, [0, 0, 0xc000145c, 0xc00fef50, 0xc0100b80, 0xc00fef48, 0xc00fef4c,
+                          0xc0100a20, 0xc00fde6c, 0xc00fde78, 0xc01252ec, 0xc0125354, 0xc0125320,
+                          0xc01252e4, 0xc00ffd28, 0xc0100870]),               # PB Mode vtable
+            (0xc03c37f0, [0xfffffff4, 0, 0xc00fde84, 0xc0100a94]),       # its +0xc sub-object
+            (0xc0100a94, [0xe240000c]),                                # its thunk: sub r0, #12
+            (0xc03c029c, [0x21, 0, 0, 0x1f, 0, 0x100, 0xffffffff])])   # descriptor of 0x21
+PALIERS['palier10diag'] = dict(PALIERS['palier10'], sources=['palier10diag.c'])  # state on the menu
+# Diagnostic: palier 9 with its two note wrappers moved into the dead range palier 10 uses.
+# Boots and plays like palier 9 if that range really is dead.
+PALIERS['palier9dead'] = dict(PALIERS['palier9'], dead=DEAD,
+    force_dead=['mpe9_target_note_on', 'mpe9_target_note_off'])
 PALIERS['palier5diag'] = dict(PALIERS['palier5'],                     # palier 5 + audible diagnostic
     sources=PALIER3['sources'] + ['palier5diag.c'],
     branches=[(0xc00119f8, 0xea005b60, 'mpe_queue_note_on'),
@@ -126,31 +160,92 @@ def put(code, addr, old, new):
     struct.pack_into('<I', code, addr - BASE, new)
 
 
-def compile_and_link(srcs, out, heap_bss=False):
+def pack(objs, dead, force=()):
+    """Place each code / constant section: the gap first, in source order, then the dead
+    ranges, largest first (first fit). Returns linker-script patterns per region."""
+    secs, data = [], 0
+    for o in objs:
+        lines = subprocess.run(['arm-none-eabi-objdump', '-h', o], check=True, capture_output=True,
+                               text=True).stdout.split('\n')
+        for l in lines:
+            p = l.split()
+            if len(p) == 7 and p[0].isdigit() and p[6].startswith('2**'):
+                name, size, align = p[1], int(p[2], 16), 1 << int(p[6][3:])
+                if not size:
+                    continue
+                if name.startswith(('.text', '.rodata')):
+                    secs.append((f'*{os.path.basename(o)}({name})', size, align))
+                elif name.startswith('.data'):
+                    data += size + 8                                  # + alignment slack
+    up = lambda x, a: (x + a - 1) & -a
+    room, gap_in, rest = GAP_END - CODE_END - data - 8, [], []
+    used = 0                                              # force: sections sent to the dead ranges
+    for pat, size, align in secs:                         # first fit: smaller ones still fill the gap
+        if any(f'.{f})' in pat for f in force) or up(used, align) + size > room:
+            rest.append((pat, size, align))
+        else:
+            used = up(used, align) + size
+            gap_in.append(pat)
+    free = [b - a for a, b in dead]
+    dead_in = [[] for _ in dead]
+    for pat, size, align in sorted(rest, key=lambda s: -s[1]):
+        for i in range(len(dead)):
+            n = up(dead[i][1] - dead[i][0] - free[i], align) + size
+            if n <= dead[i][1] - dead[i][0]:
+                free[i] = dead[i][1] - dead[i][0] - n
+                dead_in[i].append(pat)
+                break
+        else:
+            raise SystemExit(f'plus de place pour {pat} ({size:#x} octets)')
+    return gap_in, dead_in
+
+
+def compile_and_link(srcs, out, heap_bss=False, dead=(), force=()):
     # heap_bss: zeroed variables go to the start of the heap (HEAP), which main() moves up,
     # instead of filling the code gap.
+    # dead: code and constants that do not fit the gap go to these CODE ranges, one output
+    # section each (.dead0, .dead1…), placed by pack() below; variables stay in the gap or
+    # the heap (the dead ranges may be read-only for all we know).
     ld = os.path.join(out, 'patch.ld')
     bss = '*(.bss*) *(COMMON)'
-    with open(ld, 'w') as f:
-        f.write(f'MEMORY {{ gap (rx) : ORIGIN = {CODE_END:#x}, LENGTH = {GAP_END - CODE_END:#x}\n'
-                f'         ram (rw) : ORIGIN = {HEAP:#x}, LENGTH = 0x2000 }}\n'
-                'SECTIONS {\n  .text : { *(.text.entry) *(.text*) *(.rodata*) *(.data*) '
-                + ('} > gap\n  .hbss (NOLOAD) : { ' + bss + ' . = ALIGN(8); mpe_bss_end = .; } > ram\n'
-                   if heap_bss else bss + ' } > gap\n')
-                + '  /DISCARD/ : { *(.comment) *(.ARM.attributes) }\n}\n')
-        for name, addr in SYMBOLS.items():
-            f.write(f'{name} = {addr:#x};\n')
     elf, binf = (os.path.join(out, 'patch' + e) for e in ('.elf', '.bin'))
     cflags = ['-Os', '-marm', '-march=armv5te', '-mfloat-abi=soft', '-ffreestanding', '-fno-builtin',
               '-nostdlib', '-fno-common', '-fno-pic', '-ffunction-sections', '-Wall', '-Wextra', '-Werror']
+    if dead:
+        cflags.append('-fdata-sections')
     objs = []
     for src in srcs:
         objs.append(os.path.join(out, os.path.basename(src)[:-2] + '.o'))
         subprocess.run(['arm-none-eabi-gcc', *cflags, '-c', src, '-o', objs[-1]], check=True)
-    subprocess.run(['arm-none-eabi-ld', '-T', ld, *objs, '-o', elf], check=True)
+    if dead:
+        gap_in, dead_in = pack(objs, dead, force)
+        gap_text = (' '.join(gap_in) + ' *(.text) *(.glue_7) *(.glue_7t) *(.vfp11_veneer) *(.v4_bx)'
+                    ' *(.data*) ')                               # + linker stubs (empty in ARM mode)
+    else:
+        gap_text = '*(.text.entry) *(.text*) *(.rodata*) *(.data*) '
+    with open(ld, 'w') as f:
+        f.write(f'MEMORY {{ gap (rx) : ORIGIN = {CODE_END:#x}, LENGTH = {GAP_END - CODE_END:#x}\n'
+                + ''.join(f'         dead{i} (rx) : ORIGIN = {a:#x}, LENGTH = {b - a:#x}\n'
+                          for i, (a, b) in enumerate(dead))
+                + f'         ram (rw) : ORIGIN = {HEAP:#x}, LENGTH = 0x2000 }}\n'
+                'SECTIONS {\n  .text : { ' + gap_text
+                + ('} > gap\n  .hbss (NOLOAD) : { ' + bss + ' . = ALIGN(8); mpe_bss_end = .; } > ram\n'
+                   if heap_bss else bss + ' } > gap\n')
+                + ''.join(f'  .dead{i} : {{ {" ".join(dead_in[i])} }} > dead{i}\n' for i in range(len(dead)))
+                + '  /DISCARD/ : { *(.comment) *(.ARM.attributes) *(.note*) *(.iplt) *(.rel.iplt) *(.igot.plt) }\n}\n')
+        for name, addr in SYMBOLS.items():
+            f.write(f'{name} = {addr:#x};\n')
+    subprocess.run(['arm-none-eabi-ld', *(['--orphan-handling=error'] if dead else []),
+                    '-T', ld, *objs, '-o', elf], check=True)
     sects = subprocess.run(['arm-none-eabi-objdump', '-h', elf], check=True, capture_output=True, text=True).stdout
     assert '.data' not in sects and '.bss' not in sects, 'variables hors des sections prévues'
     subprocess.run(['arm-none-eabi-objcopy', '-O', 'binary', '-j', '.text', elf, binf], check=True)
+    spill = []                                           # (address, bytes) for each dead range used
+    for i, (a, _) in enumerate(dead):
+        part = os.path.join(out, f'patch.dead{i}.bin')
+        subprocess.run(['arm-none-eabi-objcopy', '-O', 'binary', '-j', f'.dead{i}', elf, part], check=True)
+        if os.path.exists(part) and os.path.getsize(part):
+            spill.append((a, open(part, 'rb').read()))
     syms = {}
     for line in subprocess.run(['arm-none-eabi-nm', elf], check=True, capture_output=True, text=True).stdout.split('\n'):
         p = line.split()
@@ -158,19 +253,28 @@ def compile_and_link(srcs, out, heap_bss=False):
             syms[p[2]] = int(p[0], 16)
     with open(os.path.join(out, 'patch.lst'), 'w') as f:
         f.write(subprocess.run(['arm-none-eabi-objdump', '-d', elf], check=True, capture_output=True, text=True).stdout)
-    return open(binf, 'rb').read(), syms
+    return open(binf, 'rb').read(), syms, spill
 
 
 def main(name):
     spec = PALIERS[name]
     out = os.path.join(ROOT, 'build', name)
     os.makedirs(out, exist_ok=True)
-    heap_bss = spec.get('heap_bss', False)
-    blob, syms = compile_and_link([os.path.join(HERE, f) for f in spec['sources']], out, heap_bss)
+    heap_bss, dead = spec.get('heap_bss', False), spec.get('dead', ())
+    blob, syms, spill = compile_and_link([os.path.join(HERE, f) for f in spec['sources']], out, heap_bss, dead,
+                                         spec.get('force_dead', ()))
     blob += b'\0' * (-len(blob) % 8)                    # zero fill uses 8-byte stores
     assert CODE_END + len(blob) <= GAP_END, f'patch trop gros : {len(blob):#x} octets'
     code = bytearray(open(os.path.join(ROOT, 'ghidra', 'bin', 'unpacked', 'img1_CODE_c0000000.bin'), 'rb').read())
     assert len(code) == CODE_END - BASE, 'CODE inattendu'
+    for addr, words in spec.get('checks', []):           # firmware words our C code relies on
+        for i, v in enumerate(words):
+            assert word(code, addr + 4 * i) == v, f'{addr + 4 * i:#x}: {word(code, addr + 4 * i):#x} != attendu {v:#x}'
+    sites = [e[0] for k in ('data', 'calls', 'ptrs', 'branches') for e in spec.get(k, [])]
+    for a, b in dead:
+        assert not any(a <= s < b for s in sites), f'mot modifié dans la zone morte {a:#x}'
+    for a, part in spill:                                # overwrite the dead ranges we use
+        code[a - BASE:a - BASE + len(part)] = part
     new_end = CODE_END + len(blob)
     put(code, STARTUP + 12, CODE_END - BASE, new_end - BASE)       # copy size (src == dst: no copy)
     zero_end = CODE_END + word(code, STARTUP + 16)
@@ -194,7 +298,8 @@ def main(name):
     subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'tools', 'pack_oscab.py'),
                     os.path.join(ROOT, 'ghidra', 'bin', 'os.cab'), cab, f'CODE={path}'], check=True)
     ours = {e[2] for k in ('calls', 'ptrs', 'branches') for e in spec.get(k, [])}
-    print(f'{name}: {len(blob):#x} octets en {CODE_END:#x} ; '
+    print(f'{name}: {len(blob):#x} octets en {CODE_END:#x}'
+          + ''.join(f' + {len(p):#x} en {a:#x}' for a, p in spill) + ' ; '
           + ', '.join(f'{k}={syms[k]:#x}' for k in sorted(ours)))
 
 

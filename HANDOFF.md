@@ -24,9 +24,30 @@ semble encore un peu en dessous de la molette à fond (contrôleur ou échelle).
 Z → Level décevant au palier 7. **Palier 8 essayé : semble fonctionner, mais décevant ; on
 s'arrête là** (Z → Wheel / Velocity en option du menu). Même note sur deux canaux : la plus
 récente vole le bend de l'autre. **Reprise (nouvelle conversation, 2026-11-19)** : palier 9, 2ᵉ version, **essayé : OK** (même hauteur
-sur deux canaux, plus de notes bloquées) ; continuer l'étude du menu MIDI depuis `docs/menus.md` : trouver la liste des
-entrées, la navigation, la sauvegarde des réglages. Palier 9 et `docs/menus.md` pas encore
-commités.
+sur deux canaux, plus de notes bloquées). **Menu MIDI étudié le 2026-11-19
+(`docs/menus.md`)** : construction des pages et des entrées (`menus_build`), réglages
+globaux (34 descripteurs en `0xc03bff00`, `global_get` / `global_step`), sauvegarde
+(enregistrement fixe de 38 octets, 160 bits libres). Piste retenue : ajouter nos
+réglages à la fin de la table, sans changer de version, et nos entrées clonées de
+PB Mode. **Complété le 2026-11-20** : la navigation suit le compte de la page (entrées
+ajoutées atteintes sans autre changement), l'afficheur reçoit de l'ASCII (lettres sûres
+listées), l'écriture en flash est automatique (minuterie de 2 s), rôles des n° nommés.
+Étude du menu terminée. **Palier 10, 1ʳᵉ version : le clavier ne redémarrait plus**
+(4 réglages globaux ajoutés ; l'écouteur de ces réglages a des tableaux de 34 cases figés
+dans son objet). **2ᵉ version essayée le 2026-11-20 : démarre, menu affiché, mais `P` n'agit qu'après un
+redémarrage** (l'application n'est pas prévenue du n° 0x21). **3ᵉ version (la molette relance
+elle-même la création des zones) : même défaut.** Diagnostic prêt :
+`build/palier10diag_os.app` (`r` = zones du slot A, `y` = relances | g_mpe_on).
+**Relevé : la relance marche** (`r.02` → `r.20`, `y.60` → `y.71` sans redémarrer) ; le
+silence venait du programme d'essai et de `y` resté sur `Of`. **Palier 10 (3ᵉ version)
+essayé : OK.** Détails
+(`build/palier10_os.app`, `docs/patches.md`, « Palier 10 en détail ») : les options sont
+des bits du réglage 0x21 (inutilisé). Entrées MIDI `P` (MPE Of/On), `r` (bend
+48/24/12/2), `y` (Y On/Of), `L` (Z On/Of), sauvegardées ; le MPE ne dépend plus du canal
+global. Si elle ne démarre pas : `build/palier9dead_os.app` dit si la zone morte est en
+cause. Une partie du code est dans une zone de code mort
+du firmware (`tools/find_dead_code.py`), seul risque nouveau. Ensuite : les autres options
+voulues (destinations Velocity / Cutoff, courbes, Z × vélocité, canaux A–D ignorés).
 **Palier 9** (`build/palier9_os.app`) : même hauteur sur
 plusieurs canaux par renumérotation de la note (`docs/patches.md`, « Palier 9 en détail »).
 Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
