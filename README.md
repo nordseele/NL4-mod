@@ -1,8 +1,8 @@
-# NL4 M
+# NL4 MPE mod
 
 ### MPE for the Nord Lead 4
 
-**NL4 M (BETA)** (repository `NL4-mod`) is an unofficial firmware modification for the Clavia
+**NL4 MPE mod (BETA)**  is an unofficial firmware modification for the Clavia
 (Nord Keyboards) Nord Lead 4, OS 1.32. It adds **MPE** (MIDI Polyphonic Expression):
 per-note pitch bend, pressure (Z) and timbre (Y, CC74) from an MPE controller such as a
 LinnStrument or an Osmose.
