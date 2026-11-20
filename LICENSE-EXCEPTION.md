@@ -1,6 +1,6 @@
 # Additional Permission (GNU GPL Version 3, Section 7)
 
-NL4 M is free software: you can redistribute it and/or modify it under the
+NL4 MPE is free software: you can redistribute it and/or modify it under the
 terms of the GNU General Public License as published by the Free Software
 Foundation, either version 3 of the License, or (at your option) any later
 version (see `LICENSE`), with the following additional permission.

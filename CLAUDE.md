@@ -1,4 +1,4 @@
-# NL4 M — MPE for the Nord Lead 4
+# NL4 MPE — MPE for the Nord Lead 4
 
 Read `HANDOFF.md` first (status, plan, how to resume), then `docs/voices-midi.md`.
 
@@ -16,6 +16,6 @@ Project rules:
   pyghidra containers (other projects).
 - Function names go into `tools/symbols.txt`, then `tools/rebuild.sh` and re-import into
   Ghidra.
-- Remote: `github.com/nordseele/NL4-mod`, **public** since 2026-11-20 (the user's
+- Remote: `github.com/nordseele/NL4_MPE`, **public** since 2026-11-20 (the user's
   decision). `hardware/` (photos of the board) stays local. Docs are written in English.
 - The user writes in French: answer in French.

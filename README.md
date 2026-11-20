@@ -142,11 +142,17 @@ firmware can make the synth unusable: see the risks section of HANDOFF.md.
 Do not share the contents of `build/`, `vendor/` or `ghidra/`: they contain Clavia's
 firmware.
 
+## Support
+
+If you find this mod useful, please consider supporting its development on
+[Ko-fi](https://ko-fi.com/bumathan). It helps me keep testing, fixing and adding
+features. Thank you!
+
 ## Licence
 
 Copyright (c) 2026 nordseele.
 
-NL4 M is free software under the **GNU General Public License, version 3 or
+NL4 MPE is free software under the **GNU General Public License, version 3 or
 later** ([LICENSE](LICENSE)), with an additional permission
 ([LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)) that allows combining it with
 the Nord Lead 4 firmware, which the GPL alone would not. In short: you may use,

@@ -1,4 +1,4 @@
-# HANDOFF — status of the NL4 M project (MPE for the Nord Lead 4)
+# HANDOFF — status of the NL4 MPE project (MPE for the Nord Lead 4)
 
 Last update: 2026-11-20.
 
@@ -30,8 +30,8 @@ additions go into the dead code areas (`tools/find_dead_code.py`, `DEAD` in `bui
 the zone and the bend range). Low priority; the menu is enough. If it is done one day: as
 a convenience on top of the menu, never as a dependency.
 
-**Repository**: `github.com/nordseele/NL4-mod`, public since 2026-11-20 (README, warning
-and licence modelled on P12 M). `hardware/` (photos of the board) stays local.
+**Repository**: `github.com/nordseele/NL4_MPE`, public since 2026-11-20 (README, warning
+and licence modelled on P12 MPE, `nordseele/P12_MPE`). `hardware/` (photos of the board) stays local.
 
 Recovery table kept from the first stages:
 
