@@ -1,100 +1,101 @@
-# Code des SHARC (ADSP-21489)
+# SHARC code (ADSP-21489)
 
-Exploration du 2026-11-18. Légende : **[sûr]** lu ; **[hyp.]** déduit.
+Exploration of 2026-11-18. Legend: **[sure]** read; **[hyp.]** inferred.
 
-## Où il est  [sûr]
+## Where it is  [sure]
 
-Dans la section CODE de l'OS ARM (image 1 de `os.cab`), sous forme de **deux flux de
-démarrage ADI 214xx** (format 32 bits, non compressés), un par SHARC :
+In the CODE section of the ARM OS (image 1 of `os.cab`), as **two ADI 214xx boot
+streams** (32-bit format, uncompressed), one per SHARC:
 
-| Flux | Adresse ARM | Taille | Blocs | Code VISA (INIT_L16 à 0x1C0300) | Données |
+| Stream | ARM address | Size | Blocks | VISA code (INIT_L16 at 0x1C0300) | Data |
 |---|---|---|---|---|---|
-| 1 | 0xc03c5720 | 0x13C10 | 445 | 0x6A28 octets | blocs 0, 1, 3 (0x90000, 0xB0000, 0xE0000) |
-| 2 | 0xc03d9334 | 0x13DB0 | 451 | 0x6B30 octets | idem, un peu plus en bloc 0 |
+| 1 | 0xc03c5720 | 0x13C10 | 445 | 0x6A28 bytes | blocks 0, 1, 3 (0x90000, 0xB0000, 0xE0000) |
+| 2 | 0xc03d9334 | 0x13DB0 | 451 | 0x6B30 bytes | same, a little more in block 0 |
 
-Chaque flux est suivi de sa longueur en mots de 32 bits (0x4F04, 0x4F6C). Il commence
-par le noyau de démarrage ADI (256 instructions), identique octet pour octet à celui du
-Prophet 12, puis des blocs ZERO_LDATA / INIT_L16 / INIT_L32, et finit par FINAL_INIT.
-L'ARM les envoie au démarrage : chargeur `fn_c010cc98`, pointeurs vers les deux flux en
-0xc010cddc / 0xc010cde0. Les deux programmes sont proches mais différents : rôles
-distincts **[hyp. : un SHARC par moitié des voix, plus les effets sur l'un des deux]**.
+Each stream is followed by its length in 32-bit words (0x4F04, 0x4F6C). It starts with the
+ADI boot kernel (256 instructions), identical byte for byte to the Prophet 12's, then
+ZERO_LDATA / INIT_L16 / INIT_L32 blocks, and ends with FINAL_INIT. The ARM sends them at
+boot: loader `fn_c010cc98`, pointers to the two streams at 0xc010cddc / 0xc010cde0. The two
+programs are close but different: distinct roles **[hyp.: one SHARC per half of the
+voices, plus the effects on one of the two]**.
 
-Conséquence pour la sûreté : comme sur le Prophet 12, les SHARC ne gardent aucun programme
-à eux ; réinstaller l'OS réinstalle aussi leur code.
+Consequence for safety: as on the Prophet 12, the SHARCs keep no program of their own;
+reinstalling the OS also reinstalls their code.
 
-## Outils
+## Tools
 
-- `tools/extract_sharc.py` : extrait les deux flux (`ghidra/bin/sharc/*.ldr`, hors git),
-  vérifie la chaîne de blocs et la longueur.
-- Ghidra : extension `roblg/ghidra-sharc` (prise en charge annoncée des
-  ADSP-21483–21489), **réutilisée telle que compilée dans le projet Prophet 12**
-  (`p12RE/ghidra/projects_sharc/ext/installed/SHARC`, montée en lecture seule). Import
-  sans tête dans un conteneur jetable, projet dans `ghidra/sharc_work/` (hors git) :
+- `tools/extract_sharc.py`: extracts the two streams (`ghidra/bin/sharc/*.ldr`, not in
+  git), checks the block chain and the length.
+- Ghidra: the `roblg/ghidra-sharc` extension (announced support for the
+  ADSP-21483–21489), **reused as built in the Prophet 12 project**
+  (`<Prophet 12 project>/ghidra/projects_sharc/ext/installed/SHARC`, mounted read-only).
+  Headless import in a throwaway container, project in `ghidra/sharc_work/` (not in git):
 
 ```sh
 docker run --rm -v "$PWD/ghidra/bin/sharc":/ldr:ro -v "$PWD/ghidra/sharc_work":/work \
-  -v /Users/matthiasbudde/CODE/p12RE/ghidra/projects_sharc/ext/installed/SHARC:/ghidra/Ghidra/Extensions/SHARC:ro \
+  -v "$SHARC_EXT":/ghidra/Ghidra/Extensions/SHARC:ro \
   --entrypoint /ghidra/support/analyzeHeadless ghcr.io/clearbluejar/pyghidra-mcp:sha-f43400b \
   /work/proj nl4dsp -import /ldr/sharc1_c03c5720.ldr /ldr/sharc2_c03d9334.ldr \
   -loader SharcLdrLoader -overwrite -scriptPath /work/scripts -postScript Survey.java
 ```
 
-Scripts dans `tools/sharc/` (à copier dans `ghidra/sharc_work/scripts/`) : `Survey.java`
-(repris du projet Prophet 12), `CmdHandlers.java` (crée les 27 `dsp_cmd_NN` depuis la
-table DM 0x92180), `ListAll.java` et `DumpAll.java` (désassemblage et pseudo-C complets,
-argument = fichier de sortie, avec `-process <prog> -postScript …`).
+(`SHARC_EXT` = the folder of the built extension.) Scripts in `tools/sharc/` (to copy into
+`ghidra/sharc_work/scripts/`): `Survey.java` (taken from the Prophet 12 project),
+`CmdHandlers.java` (creates the 27 `dsp_cmd_NN` from the DM table 0x92180), `ListAll.java`
+and `DumpAll.java` (full disassembly and pseudo-C, argument = output file, with
+`-process <prog> -postScript …`).
 
-Résultat de l'import : 48 et 50 fonctions, ≈ 1 900 instructions chacun, **0 erreur, 100 % des
-fonctions décompilées**. La couverture est partielle (le code fait ≈ 27 Ko ; une grande
-partie n'est atteinte que par interruptions ou appels indirects).
+Result of the import: 48 and 50 functions, ≈ 1,900 instructions each, **0 errors, 100 %
+of functions decompiled**. Coverage is partial (the code is ≈ 27 KB; a large part is only
+reached through interrupts or indirect calls).
 
-## Liaison ARM → SHARC  [sûr sauf mention]
+## ARM → SHARC link  [sure unless stated]
 
-**Côté ARM.** `hw_write(dsp, mot1, mot2)` (c014f0d0) écrit deux mots de 32 bits dans un
-port mappé sur le bus EMIFA de l'AM1705, avec contrôle de flux par GPIO. Table des ports
-(c0402668) : jusqu'à 4 ports en **0x62000000 / +4 / +8 / +C** (EMIFA CS3), deux utilisés
-(un par SHARC). Une logique de liaison sur la carte **[hyp.]** les sérialise vers le SHARC.
-Les voix alternent entre les deux SHARC : `dsp = numéro matériel & 1`, 10 voix chacun.
+**ARM side.** `hw_write(dsp, word1, word2)` (c014f0d0) writes two 32-bit words to a port
+mapped on the AM1705's EMIFA bus, with GPIO flow control. Port table (c0402668): up to 4
+ports at **0x62000000 / +4 / +8 / +C** (EMIFA CS3), two used (one per SHARC). Link logic
+on the board **[hyp.]** serialises them to the SHARC. Voices alternate between the two
+SHARCs: `dsp = hardware number & 1`, 10 voices each.
 
-**Côté SHARC.** La routine audio (`FUN_sw_001c25fb`, appelée à chaque bloc) commence par
-vider un **tampon circulaire de paires de mots**, rempli par DMA chaînée depuis un port
-série SPORT (registres DMA 0xC40–0xC4F, pointeur courant lu en 0x2400 **[hyp.]**) :
+**SHARC side.** The audio routine (`FUN_sw_001c25fb`, called at each block) starts by
+draining a **ring buffer of word pairs**, filled by chained DMA from a SPORT serial port
+(DMA registers 0xC40–0xC4F, current pointer read at 0x2400 **[hyp.]**):
 
 ```
-mot 1 = [commande : 8 bits | adresse : 24 bits]      mot 2 = valeur
-commande 0      : DM[adresse] = valeur               (écriture directe)
-commande 1..26  : appel de la table DM 0x92180       (identique sur les deux SHARC)
+word 1 = [command: 8 bits | address: 24 bits]      word 2 = value
+command 0      : DM[address] = value               (direct write)
+command 1..26  : call through the DM table 0x92180 (identical on both SHARCs)
 ```
 
-Les 27 commandes sont des **primitives d'accès mémoire**, pas des commandes de synthèse :
-écritures à I7 / I7+1, relectures renvoyées par SPI (TXSPI 0x1003), réglage des
-pointeurs I7 / M7, écriture en flux `DM(I7, M7) = valeur` (cmd 18, 19), relance du DMA
-de réception (cmd 22), transfert DMA mémoire (cmd 25). L'interruption SPI (VEC_P1I)
-sert à la relecture : elle reçoit une adresse et renvoie son contenu.
+The 27 commands are **memory access primitives**, not synthesis commands: writes at I7 /
+I7+1, reads sent back over SPI (TXSPI 0x1003), setting of the I7 / M7 pointers, stream
+write `DM(I7, M7) = value` (cmd 18, 19), restart of the receive DMA (cmd 22), memory DMA
+transfer (cmd 25). The SPI interrupt (VEC_P1I) serves the read-back: it receives an
+address and sends back its contents.
 
-**Conséquence : le SHARC est un moteur « bête » dont l'ARM écrit directement les
-paramètres en mémoire.** Chaque paramètre de voix est une case mémoire du SHARC
-(adresse = base + voix × pas, par ex. la hauteur : `voix × 8 + base`).
+**Consequence: the SHARC is a "dumb" engine whose parameters the ARM writes directly in
+memory.** Each voice parameter is a SHARC memory cell (address = base + voice × stride,
+e.g. the pitch: `voice × 8 + base`).
 
-**Lissage.** Juste après, la routine audio rapproche chaque paramètre de sa cible
-(`courant += coef × (cible − courant)`, cible en 0x921A4…, courant en 0xE1E00…, par
-groupes). Des changements continus et fréquents ne feront donc pas de clics.
+**Smoothing.** Right after, the audio routine moves each parameter towards its target
+(`current += coef × (target − current)`, target at 0x921A4…, current at 0xE1E00…, by
+groups). Continuous and frequent changes will therefore not click.
 
-## Ce que ça change pour le MPE
+## What this changes for MPE
 
-- **Rien à modifier côté SHARC.** Y / Z par voix = l'ARM écrit, pour une seule voix,
-  des valeurs qu'il écrit déjà aujourd'hui pour toutes les voix d'un slot ; le SHARC
-  les applique et les lisse.
-- Pas d'équivalent de la commande 0x1F6 du Prophet 12 à trouver : tout passe par des
-  écritures mémoire. Une piste plus légère que `voice_apply_velocity` existe donc :
-  écrire directement, pour une voix, la ou les adresses SHARC des destinations
-  voulues (par ex. la coupure du filtre). À cartographier : adresse SHARC de chaque
-  paramètre de voix (appels de `hw_write`, ~285).
+- **Nothing to change on the SHARC side.** Per-voice Y / Z = the ARM writes, for a single
+  voice, values it already writes today for all voices of a slot; the SHARC applies and
+  smooths them.
+- No equivalent of the Prophet 12's command 0x1F6 to find: everything goes through memory
+  writes. A lighter path than `voice_apply_velocity` therefore exists: write directly, for
+  one voice, the SHARC address(es) of the wanted destinations (e.g. the filter cutoff). To
+  map: the SHARC address of each voice parameter (calls of `hw_write`, ~285). (Stage 11
+  found the per-voice level address: DM `0x9248a + (n >> 1) × 0x40`, `docs/patches.md`.)
 
-## À explorer, si utile au MPE
+## To explore, if useful for MPE
 
-1. ~~Protocole ARM → SHARC~~ : fait (section « Liaison »).
-2. ~~Lissage~~ : oui, par bloc, côté SHARC.
-3. ~~Entrée de modulation par voix~~ : pas besoin, écritures mémoire directes.
-4. Carte des adresses SHARC des paramètres de voix (depuis les appels de `hw_write`).
-5. Rôle des deux programmes (différence de ≈ 0x100 octets de code) et coût CPU par bloc.
+1. ~~ARM → SHARC protocol~~: done (section "Link").
+2. ~~Smoothing~~: yes, per block, on the SHARC side.
+3. ~~Per-voice modulation input~~: not needed, direct memory writes.
+4. Map of the SHARC addresses of voice parameters (from the calls of `hw_write`).
+5. Role of the two programs (≈ 0x100 bytes of code difference) and CPU cost per block.

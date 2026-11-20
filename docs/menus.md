@@ -1,210 +1,207 @@
-# Menus (System, MIDI, Sound) : étude
+# Menus (System, MIDI, Sound): study
 
-But : ajouter au menu MIDI les options MPE. Celles qui sont voulues sont listées dans
-`HANDOFF.md` : MPE Off / zone, destination de Y et de Z, courbes, plage de bend, canaux
-A–D ignorés en mode MPE.
+Goal: add the MPE options to the MIDI menu (done in stages 10 and 11, `docs/patches.md`):
+MPE Off / zone, Y and Z destinations, curves, bend range, A–D channels ignored in MPE mode.
 
-## Ce que montre le manuel (p. 43)
+## What the manual shows (p. 43)
 
-L'afficheur est à LED, quelques caractères. Une entrée de menu = une lettre ou un chiffre,
-puis sa valeur. Menu MIDI : `G` canal global, `A b c d` canaux des slots, `t` Soft Thru,
+The display is an LED display with a few characters. A menu entry = a letter or a digit,
+then its value. MIDI menu: `G` global channel, `A b c d` slot channels, `t` Soft Thru,
 `1` interface (P / U), `2` Local, `3` Control Change Mode (Sr / r / S / Off),
-`4` Program Change Mode (même plage), `5` Pitch Bend Mode (même plage), `6` Send CC,
-`7` Dump One, `8` Dump Program Bank. « Local » revient à On à chaque allumage.
+`4` Program Change Mode (same range), `5` Pitch Bend Mode (same range), `6` Send CC,
+`7` Dump One, `8` Dump Program Bank. "Local" goes back to On at each power-on.
 
-## Libellés  [sûr sauf mention]
+## Labels  [sure unless stated]
 
-- **Libellés en ASCII**, convertis pour l'afficheur ailleurs **[hyp.]** :
-  - `0xc03c32b8…0xc03c3304` : `On `, `Of`, `Hej`, `%2d.`, `34`, ` 1`…` 4`, `c1`, `c2`, `r5`,
-    `r7`, `y7`, `KO`, `Ft`, `AU`, `CL`, `OP`, ainsi que `%s.%s`, `%s.--` ;
-  - `0xc03c3b48…` : ` S`, ` r`, `Sr`, `CC`, ` Ok`, `Abt`, `Pr`, `bn`.
-- Lettre de l'entrée : chaîne d'un caractère passée au constructeur (`"1"` en
-  `0xc01ca280`, `"G"` en `0xc03c21a8`, `"t"` en `0xc0404880`…).
+- **Labels in ASCII**, converted for the display elsewhere **[hyp.]**:
+  - `0xc03c32b8…0xc03c3304`: `On `, `Of`, `Hej`, `%2d.`, `34`, ` 1`…` 4`, `c1`, `c2`, `r5`,
+    `r7`, `y7`, `KO`, `Ft`, `AU`, `CL`, `OP`, as well as `%s.%s`, `%s.--`;
+  - `0xc03c3b48…`: ` S`, ` r`, `Sr`, `CC`, ` Ok`, `Abt`, `Pr`, `bn`.
+- Entry letter: a one-character string passed to the constructor (`"1"` at `0xc01ca280`,
+  `"G"` at `0xc03c21a8`, `"t"` at `0xc0404880`…).
 
-## Construction des menus (2026-11-19)  [sûr]
+## Building the menus (2026-11-19)  [sure]
 
-`menus_build` (`fn_c00fb7a4`, objet de 0xe0 octets rangé en `0xc04edce8`, appelé par
-`fn_c00fc4a8` au démarrage avec l'objet application `app`) crée les pages, puis chaque
-entrée par `operator_new` + constructeur, et l'ajoute par
-`menu_page_add(liste, n° de page, entrée)` (`fn_c0124cec`). Une page (0x238 octets) garde
-son compte en `+0x24` et ses entrées en `+0x28…` : **131 places**, donc de quoi ajouter
-des entrées. Le n° de page est en `page+0x234`.
+`menus_build` (`fn_c00fb7a4`, 0xe0-byte object stored at `0xc04edce8`, called by
+`fn_c00fc4a8` at boot with the application object `app`) creates the pages, then each
+entry through `operator_new` + constructor, and adds it with
+`menu_page_add(list, page no., entry)` (`fn_c0124cec`). A page (0x238 bytes) keeps its
+count at `+0x24` and its entries at `+0x28…`: **131 slots**, so there is room to add
+entries. The page number is at `page+0x234`.
 
-| Champ de `menus_build` | Page | Entrées (dans l'ordre) |
+| Field of `menus_build` | Page | Entries (in order) |
 |---|---|---|
-| `[0x2f]` | System | 1…8, puis 4 entrées A–d (`fn_c00fecbc(i)`) |
-| **`[0x30]`** | **MIDI** (`fn_c00fd0b0`) | **G, A, b, c, d, t, 1…8** (tableau suivant) |
-| `[0x31]` | Sound | 1 (`fn_c0100ed8`, ajoutée après le menu MIDI), 2…5 |
-| `[0x2d]`, `[0x2e]`, `[0x32]`–`[0x34]` | autres (Mutator, etc., non identifiées) | |
+| `[0x2f]` | System | 1…8, then 4 entries A–d (`fn_c00fecbc(i)`) |
+| **`[0x30]`** | **MIDI** (`fn_c00fd0b0`) | **G, A, b, c, d, t, 1…8** (next table) |
+| `[0x31]` | Sound | 1 (`fn_c0100ed8`, added after the MIDI menu), 2…5 |
+| `[0x2d]`, `[0x2e]`, `[0x32]`–`[0x34]` | others (Mutator, etc., not identified) | |
 
-Menu MIDI, entrée par entrée :
+MIDI menu, entry by entry:
 
-| Lettre | Constructeur | Taille | Vtable principale | N° du réglage global |
+| Letter | Constructor | Size | Main vtable | Global setting no. |
 |---|---|---|---|---|
-| G | `fn_c0101cd8` | 0x60 | `0xc03c45d0` | 6 (déf. 0, max 16 = Off) |
-| A b c d | `fn_c0101da8(i)` | 0x64 | `0xc03c4350` | aucun : pas dans la table globale |
-| t | `fn_c0101d40` | 0x60 | `0xc03c4490` | 0x1a (déf. 16 = Off) |
+| G | `fn_c0101cd8` | 0x60 | `0xc03c45d0` | 6 (def. 0, max 16 = Off) |
+| A b c d | `fn_c0101da8(i)` | 0x64 | `0xc03c4350` | none: not in the global table |
+| t | `fn_c0101d40` | 0x60 | `0xc03c4490` | 0x1a (def. 16 = Off) |
 | 1 Interface | `fn_c010173c` | 0x60 | `0xc03c47b0` | 7 |
-| 2 Local | `fn_c01000b4` | 0x60 | `0xc03c35d8` | 5 (non sauvegardé, conforme au manuel) |
+| 2 Local | `fn_c01000b4` | 0x60 | `0xc03c35d8` | 5 (not saved, as in the manual) |
 | 3 CC Mode | `fn_c0100120` | 0x60 | `0xc03c3678` | 8 |
 | 4 PC Mode | `fn_c010018c` | 0x60 | `0xc03c3718` | 9 |
 | 5 PB Mode | `fn_c01001f8` | 0x60 | `0xc03c37b8` | 0x1d |
 | 6 Send CC | `fn_c010028c` | 0xa4 | | (action) |
 | 7, 8 Dump | `fn_c0100504`, `fn_c010066c` | 0xac | | (actions) |
 
-## Une entrée de menu  [sûr]
+## A menu entry  [sure]
 
-- Base : `menu_entry_ctor` (`fn_c0125368`), **7 sous-objets** de 12 octets (en `+0`,
-  `+0xc`, …, `+0x48`), chacun abonné au bus par `midi_subscribe`. Champs : `+0x54` = `app`,
-  `+0x58` = 3ᵉ paramètre, `+0x5c` = libellé, `+0x51` = entrée active (lu par
-  `menu_entry_is_active`, `fn_c0125514`).
-- Les constructeurs des entrées 2 à 5 posent les 7 vptr à partir d'**une seule base**
-  `0xc03c35d0` (+8, +0x48, +0x58…) : c'est pourquoi aucune vtable n'apparaît en littéral.
-- Vtable principale (indices) : `[12]` = formatage `(this, valeur, tampon, taille)` (ex.
-  `fn_c00ffd28` : 0…3 → `Of` / ` S` / ` r` / `Sr`), `[13]` = affichage
-  `(this, tampon, taille)` = `formatage(global_get(app, n°))`, `[5]` = tour de bouton.
-- **Tour de bouton** (`fn_c0100a20` pour PB Mode) : n'agit que si l'entrée est active et
-  si l'événement est de type 2 ; puis
-  `global_step(app, n°, 0xc08ee8b8, 1, delta)` (`fn_c00e2824`).
-- **Leçon du palier 5, encore vraie ici** : le tour de bouton arrive par le sous-objet
-  `+0xc` (abonné au bus), dont la vtable (`0xc03c37f8` pour PB Mode) contient le relais
-  `sub r0, r0, #0xc ; b fn_c0100a20`. Une nouvelle entrée doit donc fournir **sa vtable
-  principale et celle du sous-objet `+0xc`** (au moins).
+- Base: `menu_entry_ctor` (`fn_c0125368`), **7 sub-objects** of 12 bytes (at `+0`,
+  `+0xc`, …, `+0x48`), each subscribed to the bus through `midi_subscribe`. Fields:
+  `+0x54` = `app`, `+0x58` = 3rd parameter, `+0x5c` = label, `+0x51` = active entry (read
+  by `menu_entry_is_active`, `fn_c0125514`).
+- The constructors of entries 2 to 5 set the 7 vptrs from **a single base** `0xc03c35d0`
+  (+8, +0x48, +0x58…): that is why no vtable appears as a literal.
+- Main vtable (indices): `[12]` = formatting `(this, value, buffer, size)` (e.g.
+  `fn_c00ffd28`: 0…3 → `Of` / ` S` / ` r` / `Sr`), `[13]` = display
+  `(this, buffer, size)` = `formatting(global_get(app, no.))`, `[5]` = knob turn.
+- **Knob turn** (`fn_c0100a20` for PB Mode): only acts if the entry is active and the event
+  is of type 2; then `global_step(app, no., 0xc08ee8b8, 1, delta)` (`fn_c00e2824`).
+- **Lesson from stage 5, still true here**: the knob turn arrives through the sub-object
+  `+0xc` (subscribed to the bus), whose vtable (`0xc03c37f8` for PB Mode) contains the
+  relay `sub r0, r0, #0xc ; b fn_c0100a20`. A new entry must therefore provide **its main
+  vtable and that of the `+0xc` sub-object** (at least).
 
-## Réglages globaux  [sûr]
+## Global settings  [sure]
 
-- Lecture : `global_get(app, n°)` (`fn_c00e270c`), écriture :
-  `global_step(app, n°, source, borne, delta)` (`fn_c00e2824`). Le modèle est `app[0x52]`
-  (`app+0x148`), construit par `global_model_ctor` (`fn_c00ed8b0`, nom interne
-  « CRouterParam » par défaut). Sa table de paramètres (`fn_c00edda0` →
-  `param_table_ctor`, `fn_c010e4f0`) reçoit **le tableau de descripteurs `0xc03bff00` et
-  le nombre 0x22** (34 réglages, n° 0 à 0x21). La table alloue ses tableaux d'après ce
-  nombre : en ajouter ne demande que de copier le tableau ailleurs et de changer
-  pointeur + nombre.
-- `global_step` (via `fn_c011eeb8`) : valeur + delta, bornée si `borne = 1`, sinon en
-  boucle de 0 à max.
-- Descripteur = 7 mots : `[n°, défaut, max, bits, ?, drapeaux, CC]`. L'octet `+0x15`
-  (drapeaux 0x100) = **sauvegardé** ; un changement marque la table modifiée
-  (`table+0x1c`) et appelle `table+0x20`. CC = n° de CC MIDI associé, −1 sinon (id 3 →
-  CC 119, id 4 → CC 115, id 0x18 → CC 58).
+- Read: `global_get(app, no.)` (`fn_c00e270c`), write:
+  `global_step(app, no., source, clamp, delta)` (`fn_c00e2824`). The model is `app[0x52]`
+  (`app+0x148`), built by `global_model_ctor` (`fn_c00ed8b0`, internal name
+  "CRouterParam" by default). Its parameter table (`fn_c00edda0` → `param_table_ctor`,
+  `fn_c010e4f0`) receives **the descriptor array `0xc03bff00` and the count 0x22** (34
+  settings, no. 0 to 0x21). The table allocates its arrays from that count: adding some
+  would only require copying the array elsewhere and changing pointer + count (but see
+  "What this allows": the listener has fixed arrays).
+- `global_step` (via `fn_c011eeb8`): value + delta, clamped if `clamp = 1`, otherwise
+  wrapping from 0 to max.
+- Descriptor = 7 words: `[no., default, max, bits, ?, flags, CC]`. Byte `+0x15` (flags
+  0x100) = **saved**; a change marks the table as modified (`table+0x1c`) and calls
+  `table+0x20`. CC = associated MIDI CC number, −1 otherwise (id 3 → CC 119, id 4 →
+  CC 115, id 0x18 → CC 58).
 
-| n° | déf. | max | bits | sauv. | rôle connu |
+| no. | def. | max | bits | saved | known role |
 |---|---|---|---|---|---|
-| 0 | 0 | 127 | 0 | non | |
-| 1 | 0 | 1 | 1 | oui | |
-| 2 | 0 | 99 | 7 | oui | |
-| 3 | 0 | 3 | 2 | oui | CC 119 |
-| 4 | 1 | 15 | 4 | oui | CC 115 |
-| 5 | 1 | 1 | 1 | non | Local (MIDI 2) |
-| 6 | 0 | 16 | 5 | oui | canal global (MIDI G), 16 = Off |
-| 7 | 2 | 2 | 2 | oui | interface (MIDI 1) |
-| 8 | 3 | 3 | 2 | oui | CC Mode (MIDI 3) |
-| 9 | 3 | 3 | 2 | oui | PC Mode (MIDI 4) |
-| 0xa | 6 | 12 | 4 | oui | Transpose (System 2), 6 = 0 |
-| 0xb | 50 | 100 | 7 | oui | Fine Tune (System 3), 50 = 0 |
-| 0xc | 2 | 4 | 3 | oui | |
-| 0xd | 0 | 2 | 3 | oui | Sustain Pedal Polarity (System 4) |
-| 0xe | 0 | 4 | 3 | oui | Ctrl Pedal Type (System 5) |
-| 0xf | 0 | 1 | 2 | oui | Ctrl Pedal Mode (System 6) |
-| 0x10 | 0 | 9 | 4 | oui | Ctrl Pedal Gain (System 7) |
-| 0x11, 0x12 | | | | oui | (0x11 : entrées `0xc03c3e90` / `0xc03c3f68`, page non identifiée) |
-| 0x13 | 0 | 1 | 1 | oui | Delay Mode (Sound 2) |
-| 0x14 | 50 | 100 | 7 | oui | Vibrato Rate (Sound 3) |
-| 0x15 | 25 | 50 | 6 | oui | Vibrato Amount (Sound 4) ; mis à 15 par le convertisseur v2 → v3 |
-| 0x16–0x18 | | | | oui | |
-| 0x19 | 0 | 2 | 2 | oui | (Mst Clk Kbd Sync, Sound 1, 3 valeurs ? **[hyp.]**) |
-| 0x1a | 16 | 16 | 5 | oui | Soft Thru (MIDI t), 16 = Off |
-| 0x1b | | | | non | (entrée `fn_c0102d04`, historique du Mutator ?) |
-| 0x1c | 0 | 1 | 0 | non | Impulse Morph Protect (System 8) |
-| 0x1d | 3 | 3 | 2 | oui | PB Mode (MIDI 5) |
-| 0x1e | 1 | 1 | 1 | oui | |
-| 0x1f, 0x20 | 0 | 1 | 1 | non | |
-| 0x21 | 0 | 0 | 31 | oui | ? (max 0 : toujours 0) |
+| 0 | 0 | 127 | 0 | no | |
+| 1 | 0 | 1 | 1 | yes | |
+| 2 | 0 | 99 | 7 | yes | |
+| 3 | 0 | 3 | 2 | yes | CC 119 |
+| 4 | 1 | 15 | 4 | yes | CC 115 |
+| 5 | 1 | 1 | 1 | no | Local (MIDI 2) |
+| 6 | 0 | 16 | 5 | yes | global channel (MIDI G), 16 = Off |
+| 7 | 2 | 2 | 2 | yes | interface (MIDI 1) |
+| 8 | 3 | 3 | 2 | yes | CC Mode (MIDI 3) |
+| 9 | 3 | 3 | 2 | yes | PC Mode (MIDI 4) |
+| 0xa | 6 | 12 | 4 | yes | Transpose (System 2), 6 = 0 |
+| 0xb | 50 | 100 | 7 | yes | Fine Tune (System 3), 50 = 0 |
+| 0xc | 2 | 4 | 3 | yes | |
+| 0xd | 0 | 2 | 3 | yes | Sustain Pedal Polarity (System 4) |
+| 0xe | 0 | 4 | 3 | yes | Ctrl Pedal Type (System 5) |
+| 0xf | 0 | 1 | 2 | yes | Ctrl Pedal Mode (System 6) |
+| 0x10 | 0 | 9 | 4 | yes | Ctrl Pedal Gain (System 7) |
+| 0x11, 0x12 | | | | yes | (0x11: entries `0xc03c3e90` / `0xc03c3f68`, page not identified) |
+| 0x13 | 0 | 1 | 1 | yes | Delay Mode (Sound 2) |
+| 0x14 | 50 | 100 | 7 | yes | Vibrato Rate (Sound 3) |
+| 0x15 | 25 | 50 | 6 | yes | Vibrato Amount (Sound 4); set to 15 by the v2 → v3 converter |
+| 0x16–0x18 | | | | yes | |
+| 0x19 | 0 | 2 | 2 | yes | (Mst Clk Kbd Sync, Sound 1, 3 values? **[hyp.]**) |
+| 0x1a | 16 | 16 | 5 | yes | Soft Thru (MIDI t), 16 = Off |
+| 0x1b | | | | no | (entry `fn_c0102d04`, Mutator history?) |
+| 0x1c | 0 | 1 | 0 | no | Impulse Morph Protect (System 8) |
+| 0x1d | 3 | 3 | 2 | yes | PB Mode (MIDI 5) |
+| 0x1e | 1 | 1 | 1 | yes | |
+| 0x1f, 0x20 | 0 | 1 | 1 | no | |
+| 0x21 | 0 | 0 | 31 | yes | ? (max 0: always 0) — **carries our MPE options** (max raised by `build.py`) |
 
-## Sauvegarde des réglages globaux  [sûr sauf mention]
+## Saving the global settings  [sure unless stated]
 
-- Type de fichier n° 1 du gestionnaire de stockage (`storage_ctor`, `fn_c00faaf4` ;
-  `fn_c00f9ec8`), lié à la référence du modèle global (`0xc04e6b5c` = `0xc04e6ac8 + 0x94`,
-  remplie par `app_midi_graph_ctor`).
-- **Enregistrement de taille fixe : 38 octets** (`fn_c00fa060` : champ `+0x18 = 0x26` ;
-  tampon alloué par `fn_c0122b64`).
-- Format : **16 bits de version (3)**, puis chaque réglage sauvegardé dans l'ordre des
-  n°, sur son nombre de bits, **sans étiquette** (`param_table_load`, `fn_c010ee60` →
-  `fn_c010ec60`). Une valeur hors de `0…max` revient au défaut. Total en 1.32 :
-  144 bits = 18 octets : **il reste 20 octets (160 bits) libres** dans l'enregistrement.
-- Contrôle par le calcul : le convertisseur v2 → v3 (`fn_c00f8b18`) réécrit 6 bits au bit
-  88 et la version au bit 0 ; le bit 88 tombe exactement sur le n° 0x15.
-- Versions : `fn_c00f83e4` monte la version lue pas à pas par la table `0xc03c1af0`
-  (seul v2 → v3 existe) ; version inconnue (> 2 et ≠ 3) → erreur 6. Le lecteur de bits
-  (`fn_c012a950`) ne contrôle pas la fin du tampon.
+- File type no. 1 of the storage manager (`storage_ctor`, `fn_c00faaf4`; `fn_c00f9ec8`),
+  bound to the reference of the global model (`0xc04e6b5c` = `0xc04e6ac8 + 0x94`, filled
+  by `app_midi_graph_ctor`).
+- **Fixed-size record: 38 bytes** (`fn_c00fa060`: field `+0x18 = 0x26`; buffer allocated
+  by `fn_c0122b64`).
+- Format: **16 bits of version (3)**, then each saved setting in number order, on its
+  number of bits, **without a tag** (`param_table_load`, `fn_c010ee60` → `fn_c010ec60`). A
+  value outside `0…max` goes back to the default. Total in 1.32: 144 bits = 18 bytes:
+  **20 bytes (160 bits) are left free** in the record.
+- Check by computation: the v2 → v3 converter (`fn_c00f8b18`) rewrites 6 bits at bit 88
+  and the version at bit 0; bit 88 falls exactly on no. 0x15.
+- Versions: `fn_c00f83e4` upgrades the read version step by step through the table
+  `0xc03c1af0` (only v2 → v3 exists); unknown version (> 2 and ≠ 3) → error 6. The bit
+  reader (`fn_c012a950`) does not check the end of the buffer.
 
-## Ce que cela permet pour les options MPE  [hyp., à valider]
+## What this allows for the MPE options
 
-1. ~~Nouveaux réglages à partir de 0x22~~ : **essayé, le clavier ne redémarre plus**
-   (palier 10, 1ʳᵉ version). L'écouteur des réglages globaux (`fn_c00e3f70`) range des
-   tableaux de 34 cases dans son propre objet : **le nombre de réglages est figé à 34**.
-2. Retenu : le réglage **0x21** (sauvegardé sur 31 bits, max 0, inutilisé) porte nos
-   options en champs de bits ; on ne change que son maximum.
-3. **Nouvelles entrées** : appeler `menu_page_add` sur la page MIDI à la fin de
-   `menus_build`, avec des entrées clonées de PB Mode (constructeur `fn_c01001f8`, puis
-   nos copies de la vtable principale et de celle du sous-objet `+0xc`, avec nos
-   fonctions d'affichage, de formatage et de tour de bouton pour nos n°).
-4. Lecture par notre code MPE : `global_get(app, n°)`, à la place du « canal global = 1 »
-   des paliers 2 à 9.
+1. ~~New settings from 0x22 on~~: **tried, the keyboard no longer boots** (stage 10, 1st
+   version). The listener of the global settings (`fn_c00e3f70`) stores 34-cell arrays in
+   its own object: **the number of settings is fixed at 34**.
+2. Chosen: setting **0x21** (saved on 31 bits, max 0, unused) carries our options as bit
+   fields; only its maximum is changed.
+3. **New entries**: call `menu_page_add` on the MIDI page at the end of `menus_build`,
+   with entries cloned from PB Mode (constructor `fn_c01001f8`, then our copies of the main
+   vtable and of the `+0xc` sub-object's vtable, with our display, formatting and knob
+   functions for our numbers).
+4. Read by our MPE code: `global_get(app, no.)`, instead of the "global channel = 1" of
+   stages 2 to 9.
 
-## Navigation (2026-11-20)  [sûr]
+## Navigation (2026-11-20)  [sure]
 
-- Ouverture : `menus_on_button` (`fn_c00fb204`, vtable de l'objet menus `0xc03c2178`)
-  reçoit les boutons du panneau. Avec Shift, 0x1b / 0x1c / 0x1d ouvrent System / MIDI /
-  Sound (slots A, B, C) ; 0x14 et 0x15 ouvrent deux autres pages. Changement de page :
-  `menu_list_show_page` (`fn_c0124e7c`), page courante en `liste+0x88`.
-- Molette : `menus_on_dial` (`fn_c00fb18c`) reçoit l'événement de type 2. **Sans Shift**
-  (bit 0 de `ev+4`, lu par `fn_c0131938(0, …)`), elle déplace l'entrée courante :
-  `menu_list_step` (`fn_c0124e6c`) fait `entrée = borne(courante + delta, 0, compte − 1)`
-  sur `page+0x24`. **Avec Shift**, c'est l'entrée active qui reçoit le tour (son `[5]`).
-- Donc des entrées ajoutées à la fin de la page MIDI sont atteintes **sans autre
-  changement**. L'entrée choisie passe active (`+0x51 = 1`) puis `vt[3]` ; elle se
-  désactive par `vt[4]` (après `vt[11]`, qui peut refuser).
+- Opening: `menus_on_button` (`fn_c00fb204`, vtable of the menus object `0xc03c2178`)
+  receives the panel buttons. With Shift, 0x1b / 0x1c / 0x1d open System / MIDI / Sound
+  (slot buttons A, B, C); 0x14 and 0x15 open two other pages. Page change:
+  `menu_list_show_page` (`fn_c0124e7c`), current page at `list+0x88`.
+- Dial: `menus_on_dial` (`fn_c00fb18c`) receives the type 2 event. **Without Shift** (bit 0
+  of `ev+4`, read by `fn_c0131938(0, …)`), it moves the current entry: `menu_list_step`
+  (`fn_c0124e6c`) does `entry = bound(current + delta, 0, count − 1)` on `page+0x24`.
+  **With Shift**, the active entry receives the turn (its `[5]`).
+- Entries added at the end of the MIDI page are therefore reachable **without any other
+  change**. The chosen entry becomes active (`+0x51 = 1`) then `vt[3]`; it is deactivated
+  by `vt[4]` (after `vt[11]`, which may refuse).
 
-## Affichage  [sûr sauf mention]
+## Display  [sure unless stated]
 
-- `vt[2]` d'une entrée rafraîchit l'afficheur : `vt[13]` écrit la valeur dans un tampon
-  de 4 octets (`0xc04edd1c`), puis
-  `led_printf(afficheur, "%s.%s", libellé, valeur)` (`fn_c0145530`, la même fonction qui
-  affiche « 1.32 » au démarrage). Pour PB Mode : « 5.Sr ».
-- L'ARM envoie de l'**ASCII** au pilote (`fn_c01452f0`, un caractère par position). La
-  police 7 segments n'est dans aucune des images de `os.cab`, en octets, en mots ou en
-  logique inversée : la conversion est faite ailleurs **[hyp. : matériel ou autre
-  processeur]**.
-- Lettres sûres, car déjà affichées par l'OS : chiffres, `A b C c d E e F G H i j K k L
-  n O o P r S t U u v y`, `-` et le point. Exemples : `Abt`, `Hej`, `PSt`, `CPy`, `FuL`,
-  `rcv`, `E.Sy`, `E.vE`, `E.Ck`, `KO`, `Ft`, `AU`, `CL`, `OP`, `y7`, `r5`. Les libellés
-  d'entrée existants : `1`…`8`, `G`, `A b c d`, `t`. Libres pour nos entrées : `9`, et
-  par exemple `P` (MPE), `y`, `U`, `H`, `L`, `n`, `r`, `S`.
+- `vt[2]` of an entry refreshes the display: `vt[13]` writes the value into a 4-byte
+  buffer (`0xc04edd1c`), then `led_printf(display, "%s.%s", label, value)`
+  (`fn_c0145530`, the same function that shows "1.32" at boot). For PB Mode: "5.Sr".
+- The ARM sends **ASCII** to the driver (`fn_c01452f0`, one character per position). The
+  7-segment font is in none of the images of `os.cab`, as bytes, words or inverted logic:
+  the conversion happens elsewhere **[hyp.: hardware or another processor]**.
+- Safe letters, since the OS already shows them: digits, `A b C c d E e F G H i j K k L n
+  O o P r S t U u v y`, `-` and the dot. Examples: `Abt`, `Hej`, `PSt`, `CPy`, `FuL`,
+  `rcv`, `E.Sy`, `E.vE`, `E.Ck`, `KO`, `Ft`, `AU`, `CL`, `OP`, `y7`, `r5`. Existing entry
+  labels: `1`…`8`, `G`, `A b c d`, `t`. Free for our entries: `9`, and for example `P`,
+  `y`, `U`, `H`, `L`, `n`, `r`, `S`. A `Z` would show as a `2` and a `v` reads as `U`.
 
-## Écriture en flash  [sûr]
+## Writing to flash  [sure]
 
-- Objet de sauvegarde des réglages globaux, créé par `storage_ctor` (vtable
-  `0xc03c2090`, écoute le modèle global par `fn_c0123120`) :
-  - un réglage sauvegardé change → `fn_c00fafa4` met « à écrire » (`+0x18 = 1`) ;
-  - **minuterie de 2000 ms** (`fn_c01320a0(…, 2000)`, rappel `0xc00fb094`) : si
-    l'écriture n'est pas bloquée (`+9`), `fn_c00fb048` regarde si le modèle a changé
-    (routeur `vt[13]`) et lance l'écriture ;
-  - `fn_c00fafe0` écrit l'enregistrement (`gestionnaire->vt[0]`) puis efface la marque
-    (routeur `vt[14]`) ;
-  - un événement du bus `0xc08eee38` force l'écriture (valeur 0) ou la bloque (`+9`).
-- Conséquence : nos réglages ajoutés à la table seront écrits **sans code de notre
-  part**, au plus 2 s après un changement, comme les réglages d'origine.
+- Save object of the global settings, created by `storage_ctor` (vtable `0xc03c2090`,
+  listens to the global model through `fn_c0123120`):
+  - a saved setting changes → `fn_c00fafa4` sets "to be written" (`+0x18 = 1`);
+  - **2000 ms timer** (`fn_c01320a0(…, 2000)`, callback `0xc00fb094`): if writing is not
+    blocked (`+9`), `fn_c00fb048` checks whether the model has changed (router `vt[13]`)
+    and starts the write;
+  - `fn_c00fafe0` writes the record (`manager->vt[0]`) then clears the mark (router
+    `vt[14]`);
+  - a bus event `0xc08eee38` forces the write (value 0) or blocks it (`+9`).
+- Consequence: our settings are written **without any code of ours**, at most 2 s after a
+  change, like the original settings.
 
-## Canaux A–d des slots (2026-11-20)  [sûr]
+## Slot channels A–d (2026-11-20)  [sure]
 
-- Pas dans la table globale : chaque slot i a son propre modèle `app[0x53 + i]`
-  (`app+0x14c + 4i`), réglage n° 1. Lecture `fn_c00e2740(app, i, 1)`, molette
-  `fn_c00e2894(app, i, 1, …)` (entrée `fn_c0101da8`, vtable `0xc03c4350` : `[5]`
+- Not in the global table: each slot i has its own model `app[0x53 + i]`
+  (`app+0x14c + 4i`), setting no. 1. Read `fn_c00e2740(app, i, 1)`, dial
+  `fn_c00e2894(app, i, 1, …)` (entry `fn_c0101da8`, vtable `0xc03c4350`: `[5]`
   `fn_c0101be8`, `[13]` `fn_c0101ba8`).
-- `fn_c00e0960` (changement d'un canal) pose `app[0x1fe]` ; `app_routing_update` recopie
-  alors global et A–d (`app+0x1d4…0x1e4`) dans les canaux **effectifs** `app+0x1e8…0x1f8`
-  (A–d égal au global → 16 = Off), puis crée les zones (`fn_c00df898`) et les masques.
-  Le palier 11 met à Off (en mode MPE), dans ces champs effectifs, les A–d tombés sur un canal membre.
+- `fn_c00e0960` (change of a channel) sets `app[0x1fe]`; `app_routing_update` then copies
+  global and A–d (`app+0x1d4…0x1e4`) into the **effective** channels `app+0x1e8…0x1f8`
+  (A–d equal to the global → 16 = Off), then creates the zones (`fn_c00df898`) and the
+  masks. Stage 11 sets to Off (in MPE mode), in these effective fields, the A–d channels
+  that fall on a member channel.
 
-Reste à lire : les n° 0xc, 0x11, 0x12, 0x16 à 0x18 (sans effet sur le projet).
+Still to read: no. 0xc, 0x11, 0x12, 0x16 to 0x18 (no effect on the project).

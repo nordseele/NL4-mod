@@ -1,216 +1,214 @@
-# Réception MIDI et voix — notes de recherche (OS v1.32)
+# MIDI input and voices — research notes (OS v1.32)
 
-Les noms viennent de `tools/symbols.txt`, que l'ELF porte (`tools/rebuild.sh`). Le
-pseudo-C complet se régénère avec `tools/dump_decomp.py` dans `ghidra/bin/decomp.c`
-(hors git). Légende : **[sûr]** lu dans le code ; **[hyp.]** déduit, à confirmer.
+Names come from `tools/symbols.txt`, carried by the ELF (`tools/rebuild.sh`). The full
+pseudo-C is regenerated with `tools/dump_decomp.py` into `ghidra/bin/decomp.c` (not in
+git). Legend: **[sure]** read in the code; **[hyp.]** inferred, to be confirmed.
 
-> **Adresses corrigées le 2026-11-18.** Avant le commit qui suit `6c7f2fb`, l'image
-> chargeait l'en-tête de section de 0x20 octets : toutes les adresses de **fonctions**
-> des notes antérieures étaient trop hautes de 0x20. Les adresses de **variables
-> globales** (lues dans les pools de littéraux, ex. 0xc04b0040) étaient déjà justes.
+> **Addresses corrected on 2026-11-18.** Before the commit following `6c7f2fb`, the image
+> loaded the 0x20-byte section header: all **function** addresses in earlier notes were
+> 0x20 too high. Addresses of **global variables** (read from literal pools, e.g.
+> 0xc04b0040) were already right.
 
-## Chaîne de réception MIDI  [sûr]
+## MIDI receive chain  [sure]
 
 ```
-USB-MIDI (paquets de 4 octets, CIN → longueur)    DIN (port 5 broches)
-  usbmidi_rx_packets / …2   c013e930 / c013e7f0      fn_c014c590 crée son parseur
+USB-MIDI (4-byte packets, CIN → length)          DIN (5-pin port)
+  usbmidi_rx_packets / …2   c013e930 / c013e7f0      fn_c014c590 creates its parser
         └────────────── midi_parse_byte (c013c6c8) ──┘
-             running status, SysEx (F0…F7), temps réel F8–FF
-             └─ midi_rx_to_queue (vtable 0xc0400eb0) : chaque message devient un
-                objet de 0x40 octets {type, port (+4), canal (+5), arg1 (+8), arg2 (+0xC)}
-                rangé dans une file (hors interruption)
-                  └─ bus d'abonnement : midi_subscribe(sous-objet, type, priorité, drapeaux)
-                       └─ gestionnaires de l'application (zone c011f000–c0122800)
-                            └─ pour chaque cible (slot…) : test du masque (port, canal)
+             running status, SysEx (F0…F7), real time F8–FF
+             └─ midi_rx_to_queue (vtable 0xc0400eb0): each message becomes a
+                0x40-byte object {type, port (+4), channel (+5), arg1 (+8), arg2 (+0xC)}
+                stored in a queue (outside the interrupt)
+                  └─ subscription bus: midi_subscribe(sub-object, type, priority, flags)
+                       └─ application handlers (area c011f000–c0122800)
+                            └─ for each target (slot…): test of the (port, channel) mask
 ```
 
-### Méthodes appelées par le parseur
+### Methods called by the parser
 
 | vtable | message | arguments |
 |---|---|---|
-| +0x00 | Note On | (canal, note, vélocité) ; vélocité 0 → Note Off avec vélocité 0x40 |
-| +0x04 | Note Off | (canal, note, vélocité) |
-| +0x08 | Poly Aftertouch (0xA0) | (canal, note, valeur) |
-| +0x0C | Control Change | (canal, n° CC, valeur) |
-| +0x10 | Program Change | (canal, programme) |
-| +0x14 | Channel Pressure (0xD0) | (canal, valeur) |
-| +0x18 | Pitch Bend | (canal, valeur signée −8192…+8191, déjà centrée) |
-| +0x1C | fin de SysEx (tampon) | |
+| +0x00 | Note On | (channel, note, velocity); velocity 0 → Note Off with velocity 0x40 |
+| +0x04 | Note Off | (channel, note, velocity) |
+| +0x08 | Poly Aftertouch (0xA0) | (channel, note, value) |
+| +0x0C | Control Change | (channel, CC no., value) |
+| +0x10 | Program Change | (channel, program) |
+| +0x14 | Channel Pressure (0xD0) | (channel, value) |
+| +0x18 | Pitch Bend | (channel, signed value −8192…+8191, already centred) |
+| +0x1C | end of SysEx (buffer) | |
 | +0x2C | Tune Request (0xF6) | |
-| +0x30 | horloge / temps réel | |
+| +0x30 | clock / real time | |
 
-Trois classes implémentent cette interface : `midi_rx_to_queue` (0xc0400eb0, branchée
-sur les parseurs), un **émetteur MIDI** (0xc0400d70, encode en paquets USB-MIDI vers un
-tampon de sortie) et une variante de l'émetteur (0xc0401128).
+Three classes implement this interface: `midi_rx_to_queue` (0xc0400eb0, connected to the
+parsers), a **MIDI transmitter** (0xc0400d70, encodes USB-MIDI packets into an output
+buffer) and a variant of the transmitter (0xc0401128).
 
-La charte MIDI du manuel (p. 47) confirme : **Channel Aftertouch transmis et reconnu**,
-Poly Aftertouch (« Key's ») ni transmis ni reconnu, Pitch Bend transmis et reconnu.
+The manual's MIDI implementation chart (p. 47) confirms: **Channel Aftertouch transmitted
+and recognised**, Poly Aftertouch ("Key's") neither transmitted nor recognised, Pitch Bend
+transmitted and recognised.
 
-### Types de messages (bus d'abonnement)
+### Message types (subscription bus)
 
-Le « type » d'un message est l'adresse d'un emplacement en RAM ; les gestionnaires s'y
-abonnent au démarrage (`midi_subscribe`, c013135c).
+The "type" of a message is the address of a RAM location; handlers subscribe to it at
+boot (`midi_subscribe`, c013135c).
 
 | Type | Message |
 |---|---|
 | 0xc09140bc | Note On |
 | 0xc09140c0 | Note Off |
 | 0xc09140b0 | Pitch Bend |
-| 0xc09140b4 | **Poly AT et Channel Pressure (même type)** |
+| 0xc09140b4 | **Poly AT and Channel Pressure (same type)** |
 | 0xc09140b8 | Program Change |
-| 0xc09140ac, c4, c8, cc, d0 | Control Change (5 types : quelques CC traités à part) |
+| 0xc09140ac, c4, c8, cc, d0 | Control Change (5 types: a few CCs handled separately) |
 | 0xc09140a8 | SysEx |
-| 0xc09140d4 … e8 | temps réel / horloge / divers |
+| 0xc09140d4 … e8 | real time / clock / misc. |
 
-### Contrôleurs internes  [sûr]
+### Internal controllers  [sure]
 
-Table lue dans l'émission MIDI (`fn_c011f36c`, file de sortie) :
+Table read in MIDI transmission (`fn_c011f36c`, output queue):
 
-| n° interne | MIDI |
+| internal no. | MIDI |
 |---|---|
 | 5 | CC4 |
-| 6 | CC11 (pédale d'expression) |
-| 7 | CC1 (molette) |
+| 6 | CC11 (expression pedal) |
+| 7 | CC1 (wheel) |
 | **8** | **Channel Pressure (aftertouch)** |
-| **9** | **Pitch Bend** (valeur 16 bits signée) |
+| **9** | **Pitch Bend** (signed 16-bit value) |
 | 10 | CC7 (volume) |
-| 11 | CC10 (panoramique) |
+| 11 | CC10 (pan) |
 | 13 | CC70 |
 | 3 | CC82 |
 
-À la réception, `midi_bend_in` (c0120398) et `midi_pressure_in` (c01202ac) parcourent la
-liste des cibles et appellent `target_controller_in(cible, port, canal, n°, valeur)`
-(c0112fac) avec n° = 9 et 8. **L'aftertouch reçu devient donc un contrôleur interne
-(n° 8) du slot.** Ce qu'il module reste à trouver.
+On reception, `midi_bend_in` (c0120398) and `midi_pressure_in` (c01202ac) walk the list
+of targets and call `target_controller_in(target, port, channel, no., value)` (c0112fac)
+with no. = 9 and 8. **Received aftertouch therefore becomes an internal controller (no. 8)
+of the slot.** What it modulates is still to be found.
 
-### Aiguillage canal → slot : des masques de bits  [sûr]
+### Channel → slot routing: bit masks  [sure]
 
-`target_controller_in` :
-1. la cible est-elle active (`+0x20`) ?
-2. **bit `canal + 16 × port`** du masque de la cible (mots à partir de `+0x10`) ;
-3. le contrôleur est-il autorisé en réception (`+0x2D1 + n° × 0x18`) ?
-4. mise à l'échelle (`fn_c011f004`), mémorisation **par cible et par contrôleur**
-   (`+0x2D4 + n° × 0x18`), puis `cible->vt[0](cible, n°, valeur, 0)`.
+`target_controller_in`:
+1. is the target active (`+0x20`)?
+2. **bit `channel + 16 × port`** of the target's mask (words from `+0x10`);
+3. is the controller allowed on reception (`+0x2D1 + no. × 0x18`)?
+4. scaling (`fn_c011f004`), storage **per target and per controller**
+   (`+0x2D4 + no. × 0x18`), then `target->vt[0](target, no., value, 0)`.
 
-Chaque cible a **plusieurs masques** (`+0x10`, `+0x54`, `+0x5C`, `+0x68` selon la
-classe), remplis par `mask_add_channel` (c0114524) et ses variantes (c011c344,
-c011c374, c011c3a4) ; le canal 16 (« Off ») est ignoré. La configuration se fait dans
-`midi_routing_setup` (c00dee54) : pour chaque port activé (`+0x1FC`, `+0x1FD`, sans doute
-USB et DIN), elle ajoute un canal (`+0x1E8`) aux masques de plusieurs cibles, en testant
-slot par slot s'il est actif (`fn_c010bb1c(…, i)`).
+Each target has **several masks** (`+0x10`, `+0x54`, `+0x5C`, `+0x68` depending on the
+class), filled by `mask_add_channel` (c0114524) and its variants (c011c344, c011c374,
+c011c3a4); channel 16 ("Off") is ignored. Configuration happens in `midi_routing_setup`
+(c00dee54): for each enabled port (`+0x1FC`, `+0x1FD`, probably USB and DIN), it adds a
+channel (`+0x1E8`) to the masks of several targets, testing slot by slot whether it is
+active (`fn_c010bb1c(…, i)`).
 
-**Conséquences pour le MPE :**
-- Un slot peut **déjà écouter plusieurs canaux** : l'aiguillage est un masque de bits,
-  pas un numéro de canal. Une zone MPE = ajouter les canaux membres (2–16) au masque du
-  slot dans `midi_routing_setup`.
-- Le pitch bend et la pression sont **mémorisés par cible (slot)**, une valeur commune à
-  toutes ses voix. C'est ici qu'il faudra dévier vers une valeur par note : garder le
-  canal d'origine, retrouver la note active sur ce canal, et appliquer la valeur à ses
-  voix seulement.
+**Consequences for MPE:**
+- A slot can **already listen to several channels**: routing is a bit mask, not a channel
+  number. An MPE zone = adding the member channels (2–16) to the slot's mask in
+  `midi_routing_setup`.
+- Pitch bend and pressure are **stored per target (slot)**, one value shared by all its
+  voices. This is where the path has to be diverted to a per-note value: keep the original
+  channel, find the active note on that channel, and apply the value to its voices only.
 
-### Chemin des notes  [sûr jusqu'aux cibles]
+### Note path  [sure up to the targets]
 
 ```
 type Note On (0xc09140bc)
-  └─ midi_note_handlers_ctor (c0121580) : 10 abonnements (Note On/Off, 4 types de CC…),
-     chacun via un relais d'ajustement de this (sub r0, r0, #N ; b …)
+  └─ midi_note_handlers_ctor (c0121580): 10 subscriptions (Note On/Off, 4 CC types…),
+     each through a this-adjusting relay (sub r0, r0, #N ; b …)
        └─ midi_noteon_dispatch (c011fec8) / midi_noteoff_dispatch (c011fdcc)
-            └─ targets_call_member (c011f62c) : pour chaque cible de la liste,
-               appel d'un pointeur de fonction membre (ABI ARM {ptr, adj})
+            └─ targets_call_member (c011f62c): for each target in the list,
+               call of a member function pointer (ARM ABI {ptr, adj})
                  └─ target_note_on (c011129c) / target_note_off (c0111424)
 ```
 
-`target_note_on(cible, port, canal, note, vélocité)` :
-1. `target_find_zone` (c011ecc8) cherche le couple **(port, canal)** dans la liste de la
-   cible (`+0xF0` : nombre en +4, ports en +8, canaux en +0xC) → **index de zone** ;
-2. table des zones (`cible[0x31]`) : zone active, **plage de touches** (bornes basse et
-   haute = split) et **transposition** (décalage + octave × 12) → note finale ;
-3. table **[zone][note d'entrée] → note envoyée** (128 entrées par zone) : si la note
-   d'entrée est déjà tenue, un Note Off part d'abord ;
-4. envoi par `cible->vt[0](cible, 3, {note, vélocité})` (méthode redéfinie par la classe
-   dérivée). `target_note_off` relit la note mémorisée, l'éteint par `vt[1]` et remet −1.
+`target_note_on(target, port, channel, note, velocity)`:
+1. `target_find_zone` (c011ecc8) looks up the **(port, channel)** pair in the target's
+   list (`+0xF0`: count at +4, ports at +8, channels at +0xC) → **zone index**;
+2. zone table (`target[0x31]`): active zone, **key range** (low and high bounds = split)
+   and **transposition** (offset + octave × 12) → final note;
+3. table **[zone][input note] → sent note** (128 entries per zone): if the input note is
+   already held, a Note Off is sent first;
+4. sent by `target->vt[0](target, 3, {note, velocity})` (method overridden by the derived
+   class). `target_note_off` reads back the stored note, switches it off through `vt[1]`
+   and resets it to −1.
 
-Les cibles (`note_target_ctor`, c0112b64) s'inscrivent dans une liste globale à la
-construction. Le nombre de zones est global (`*DAT_c0112d9c`). Ce sont des **objets
-composites** : partie contrôleurs (masque, `fn_c0114590`) à +0, partie notes à +0x430,
-et pour certaines une 3ᵉ partie à +0x53C. Tout est monté par `app_midi_graph_ctor`
-(c00e107c), dont `midi_routing_setup` remplit ensuite les masques (champs [0x52], [0x57],
-[0x58]+0x53C, [0x5C]).
+Targets (`note_target_ctor`, c0112b64) register in a global list on construction. The
+number of zones is global (`*DAT_c0112d9c`). They are **composite objects**: controller
+part (mask, `fn_c0114590`) at +0, note part at +0x430, and for some a 3rd part at +0x53C.
+Everything is assembled by `app_midi_graph_ctor` (c00e107c), whose masks are then filled
+by `midi_routing_setup` (fields [0x52], [0x57], [0x58]+0x53C, [0x5C]).
 
-**Pour le MPE :**
-- Une zone = un couple (port, canal). Déclarer chaque canal membre comme une zone de la
-  même cible donnerait à chaque canal **sa propre table de 128 notes** : plus de
-  collision entre canaux à ce niveau, sans changer la structure.
-- Mais le canal ne va pas plus loin : la cible appelle le slot avec des paires
-  {note, vélocité} seulement (section « Du slot à l'allocateur »).
+**For MPE:**
+- A zone = a (port, channel) pair. Declaring each member channel as a zone of the same
+  target would give each channel **its own 128-note table**: no more collision between
+  channels at this level, without changing the structure.
+- But the channel goes no further: the target calls the slot with {note, velocity} pairs
+  only (section "From the slot to the allocator").
 
-### Des cibles au slot  [sûr]
+### From the targets to the slot  [sure]
 
-- `slot_midi_input_ctor` (c00f1c5c, n° de slot en paramètre) construit **l'entrée MIDI
-  d'un slot** : la partie notes a pour destination **le slot lui-même**
-  (`fn_c01108fc(partie notes, slot)`), la partie contrôleurs a pour destination la 2ᵉ
-  interface du slot (`slot + 4`).
-- Le 2ᵉ argument des méthodes de note est un **masque de destinations** : bit 1 = MIDI
-  OUT (classe `fn_c01289a4`, file de sortie par couple (port, canal)), autre bit = synthé
-  interne. Une 3ᵉ classe de destination (`fn_c00f8154`) ne fait que compter les notes
-  tenues (indicateur).
-- `slot->vt[0]` = **`slot_note_on`** (c000f044) : calcule pour la note les valeurs de
-  **morph de vélocité et de suivi de clavier** (`(note − 64) × 0x10000`,
-  `vélocité >> 3`, base + vélocité × quantité, bornées, pour chaque destination de
-  morph), les applique au moteur du slot, puis transmet la note à l'objet en `slot+0x20`.
-  Ce calcul n'a lieu que si le bit 2 du masque est mis.
-- Conséquence pour le MPE : le morph de vélocité est **calculé au Note On, au niveau du
-  slot**. C'est un endroit naturel pour une modulation par note (Y/Z), à condition de
-  le rendre continu et par voix.
+- `slot_midi_input_ctor` (c00f1c5c, slot number as parameter) builds **the MIDI input of a
+  slot**: the note part has **the slot itself** as destination
+  (`fn_c01108fc(note part, slot)`), the controller part has the slot's 2nd interface
+  (`slot + 4`) as destination.
+- The 2nd argument of the note methods is a **destination mask**: bit 1 = MIDI OUT (class
+  `fn_c01289a4`, output queue per (port, channel) pair), another bit = internal synth. A
+  3rd destination class (`fn_c00f8154`) only counts the held notes (indicator).
+- `slot->vt[0]` = **`slot_note_on`** (c000f044): computes for the note the values of the
+  **velocity morph and keyboard tracking** (`(note − 64) × 0x10000`, `velocity >> 3`,
+  base + velocity × amount, bounded, for each morph destination), applies them to the
+  slot's engine, then passes the note on to the object at `slot+0x20`. This computation
+  only happens if bit 2 of the mask is set.
+- Consequence for MPE: the velocity morph is **computed at Note On, at the slot level**.
+  It is a natural place for a per-note modulation (Y/Z), provided it is made continuous
+  and per voice.
 
-### Du slot à l'allocateur  [sûr]
+### From the slot to the allocator  [sure]
 
-Les méthodes de note de toute la chaîne ont la même forme :
-`vt[0]` = Note On, `vt[1]` = Note Off, arguments `(objet, &masque, notes, nombre)`, où
-`notes` est un tableau de paires **{note, vélocité}**. Un appel peut donc porter
-plusieurs notes (accord, Chord Memory **[hyp.]**).
+The note methods of the whole chain have the same shape: `vt[0]` = Note On, `vt[1]` =
+Note Off, arguments `(object, &mask, notes, count)`, where `notes` is an array of
+**{note, velocity}** pairs. One call can therefore carry several notes (chord, Chord
+Memory **[hyp.]**).
 
 ```
-slot_note_on (c000f044)                    morph de vélocité si masque & 2
-  └─ slot+0x1C = slot+0x20 : filtre de destinations (0x88 octets, vtable 0xc01bd848)
+slot_note_on (c000f044)                    velocity morph if mask & 2
+  └─ slot+0x1C = slot+0x20: destination filter (0x88 bytes, vtable 0xc01bd848)
        note_dest_filter_on / _off (c00121b8 / c00123b4)
-       un octet d'état par note (128) : sur quelles destinations la note a été lancée,
-       pour que le Note Off reparte au même endroit
-  └─ slot+0x18 : arpégiateur (0x460 octets, vtable 0xc01bd8c0)
-       arp_note_on / _off (c00148f4 / c0012a68) ; laisse passer si l'arpège est coupé
-       (drapeaux +0x1D, +0x1E, +0x458 ; tables de 128 notes en +0x10 / +0x14)
-  └─ slot+0x14 : sortie du slot (8 octets {vtable 0xc01bd6d8, n° de slot})
+       one state byte per note (128): on which destinations the note was started,
+       so that the Note Off goes back to the same place
+  └─ slot+0x18: arpeggiator (0x460 bytes, vtable 0xc01bd8c0)
+       arp_note_on / _off (c00148f4 / c0012a68); passes through if the arpeggio is off
+       (flags +0x1D, +0x1E, +0x458; 128-note tables at +0x10 / +0x14)
+  └─ slot+0x14: slot output (8 bytes {vtable 0xc01bd6d8, slot no.})
        slot_sink_note_on → slot_queue_note_on (c0028780)
        slot_sink_note_off → slot_queue_note_off (c0027888)
-            └─ table de touches du slot, file d'événements, puis note_queue_drain
+            └─ the slot's key table, event queue, then note_queue_drain
 ```
 
-`slot_arp_param_in` (c000fb8c, ex-`slot_controller_in`) règle l'objet `slot+0x18`, donc
-l'arpégiateur **[hyp. forte]**.
+`slot_arp_param_in` (c000fb8c, formerly `slot_controller_in`) sets the object at
+`slot+0x18`, hence the arpeggiator **[strong hyp.]**.
 
-**`slot_queue_note_on(n° de slot, notes, nombre, &masque)`**, pour chaque note :
-- masque & 1 : purge des événements en attente pour (slot, note), création de la note
-  dans la **table des notes** (`notemap_create`, avec des réglages du slot : `+0x22C`,
-  `+0x22D`, `+0x258`), puis un événement immédiat de type 1 ;
-- masque & 2 : mise à jour de la table de 128 touches du slot (tenue, plus basse, plus
-  haute), vélocité `>> 3` dans la note, événement immédiat de type 2, puis **deux
-  événements en file : type 3 puis type 4**. Un observateur global (`*0xc040d3e4`,
-  méthode 2) reçoit (slot, note, vélocité) ;
-- masque & 4 : événement de type 6.
+**`slot_queue_note_on(slot no., notes, count, &mask)`**, for each note:
+- mask & 1: purge of pending events for (slot, note), creation of the note in the
+  **note table** (`notemap_create`, with slot settings: `+0x22C`, `+0x22D`, `+0x258`),
+  then an immediate type 1 event;
+- mask & 2: update of the slot's 128-key table (held, lowest, highest), velocity `>> 3`
+  in the note, immediate type 2 event, then **two queued events: type 3 then type 4**. A
+  global observer (`*0xc040d3e4`, method 2) receives (slot, note, velocity);
+- mask & 4: type 6 event.
 
-`slot_queue_note_off` met à jour la table de touches et range un événement de type 5.
-L'observateur reçoit la note par sa méthode 3.
+`slot_queue_note_off` updates the key table and queues a type 5 event. The observer
+receives the note through its method 3.
 
-**File d'événements** : réservoir de 0x800 entrées de 16 octets
-`{vtable, type (+4), slot (+8), note (+0xC)}` en `0xc04a6578`, et anneau de 0x200
-pointeurs (compte, lecture, écriture en `0xc04af1f0 − 0xC74 / −0xC70 / −0xC6C`).
-`note_queue_drain` (c0027708) les exécute dans l'ordre. Un événement de type 3 attend
-tant que les voix de la note précédente ne sont pas assez retombées (seuil 0x8000).
+**Event queue**: pool of 0x800 16-byte entries `{vtable, type (+4), slot (+8), note
+(+0xC)}` at `0xc04a6578`, and a ring of 0x200 pointers (count, read, write at
+`0xc04af1f0 − 0xC74 / −0xC70 / −0xC6C`). `note_queue_drain` (c0027708) runs them in
+order. A type 3 event waits as long as the voices of the previous note have not decayed
+enough (threshold 0x8000).
 
-**Patron visiteur** : un événement appelle une méthode du **gestionnaire de notes**
-(`0xc04ae578`, vtable `0xc01bde50`) avec lui-même en argument :
+**Visitor pattern**: an event calls a method of the **note handler** (`0xc04ae578`,
+vtable `0xc01bde50`) with itself as argument:
 
-| type | vtable de l'événement | méthode du gestionnaire |
+| type | event vtable | handler method |
 |---|---|---|
 | 1 | 0xc01bddf0 | vt[0] = `note_ev1_alloc_voices` (c0026ae0) |
 | 2 | 0xc01bde00 | vt[1] = `note_ev2_handler` (c0026d50) → `alloc_ev2` → `alloc_core` |
@@ -219,399 +217,394 @@ tant que les voix de la note précédente ne sont pas assez retombées (seuil 0x
 | 6 | 0xc01bde30 | vt[4] = `note_ev6_handler` (c0026c34) |
 | 5 | 0xc01bde40 | vt[5] = `note_off_event` (c002718c) → `alloc_note_off_collect` |
 
-**Deux chemins d'allocation, tous deux actifs :**
-- type 1 (masque & 1) : `note_ev1_alloc_voices` (ex-`note_off_release_voices`, nom faux)
-  lit le mode de la note (`fn_c0016070`). Mode 1 → `alloc_take_mode1` (c0018dcc), qui
-  réutilise les voix d'une note du même slot (**[hyp.]** mono / legato). Modes 0 et 2 →
-  `alloc_take` (c0019220). Les deux trient les notes actives (tri de Shell), demandent
-  `nombre × param[1]` voix (**[hyp.]** × unisson) à **`alloc_pick`** (c0018324,
-  2,7 Ko), puis préparent chaque voix rendue (`fn_c0037db4`) ;
-- type 2 (masque & 2) : `note_ev2_handler` → `alloc_ev2` (c001a7a0) → `alloc_core`
+**Two allocation paths, both active:**
+- type 1 (mask & 1): `note_ev1_alloc_voices` (formerly `note_off_release_voices`, a wrong
+  name) reads the note's mode (`fn_c0016070`). Mode 1 → `alloc_take_mode1` (c0018dcc),
+  which reuses the voices of a note of the same slot (**[hyp.]** mono / legato). Modes 0
+  and 2 → `alloc_take` (c0019220). Both sort the active notes (Shell sort), request
+  `count × param[1]` voices (**[hyp.]** × unison) from **`alloc_pick`** (c0018324,
+  2.7 KB), then prepare each returned voice (`fn_c0037db4`);
+- type 2 (mask & 2): `note_ev2_handler` → `alloc_ev2` (c001a7a0) → `alloc_core`
   (c0019884).
 
-`alloc_note_on` (c001b004) n'a aucun appelant, ni direct ni par pointeur : c'est
-peut-être du code mort. Les rôles exacts des deux chemins (réservation puis
-déclenchement ?) restent à lire.
+`alloc_note_on` (c001b004) has no caller, neither direct nor through a pointer: it may be
+dead code. The exact roles of the two paths (reservation then triggering?) remain to be
+read.
 
-**Table des notes** (`0xc040f470`) : un arbre binaire de recherche, dont les nœuds
-d'environ 0x258 octets ont leurs fils en `[0x93]` / `[0x94]`. `notemap_has` /
-`notemap_get` / `notemap_create` cherchent avec la clé **`note | slot << 8`**, calculée
-depuis la paire {slot, note}.
+**Note table** (`0xc040f470`): a binary search tree whose nodes of about 0x258 bytes have
+their children at `[0x93]` / `[0x94]`. `notemap_has` / `notemap_get` / `notemap_create`
+search with the key **`note | slot << 8`**, computed from the {slot, note} pair.
 
-## Création des slots et des voix  [sûr]
+## Creation of slots and voices  [sure]
 
-`synth_create_slots_and_voices(4, …)` (c0010a44), appelée depuis le démarrage :
+`synth_create_slots_and_voices(4, …)` (c0010a44), called at boot:
 
-- 4 × `slot_ctor(obj, i)` (c000f314, 0x4B4 octets, i = 0…3). Chaque slot contient un
-  `slot_engine` (0x8B8 octets, `slot_engine_ctor`, c001d610) avec des blocs de
-  paramètres par slot de 0xA0 octets (2 × 0x50).
-- 20 × `voice_ctor(obj, i)` (c002f1cc, 0x598 octets, i = 0…19). Chaque voix
-  s'enregistre dans un **tableau global de 20 pointeurs** en `0xc04b0040`.
-- Tableau des 4 slots en `0xc040d3b0`.
+- 4 × `slot_ctor(obj, i)` (c000f314, 0x4B4 bytes, i = 0…3). Each slot contains a
+  `slot_engine` (0x8B8 bytes, `slot_engine_ctor`, c001d610) with per-slot parameter blocks
+  of 0xA0 bytes (2 × 0x50).
+- 20 × `voice_ctor(obj, i)` (c002f1cc, 0x598 bytes, i = 0…19). Each voice registers in a
+  **global array of 20 pointers** at `0xc04b0040`.
+- Array of the 4 slots at `0xc040d3b0`.
 
-Les 20 voix forment un réservoir unique, partagé par les 4 slots (confirme le manuel).
+The 20 voices form a single pool, shared by the 4 slots (confirms the manual).
 
-## Voix  (0x598 octets)
+## Voice  (0x598 bytes)
 
-- `+0x00` = numéro de voix ; plusieurs sous-objets le reçoivent aussi. **[sûr]**
-- `voice_pitch_to_hw` (c002cd10) et `voice_pitch_mod_update` (c002ebfc) calculent la
-  **hauteur par voix** : base + modulation (+0x160 / +0x17C / +0x168), table
-  exponentielle (exposant + mantisse) → fréquence, écrite par
-  `hw_write(bit0(id), adresse, valeur)` (c014f0d0, ~300 appels). **[sûr]**
-- Numéro matériel (`+0x118`) : `bit0` = une destination parmi deux, `>>1` = index.
-  **[hyp.]** deux puces / cœurs de synthèse de 10 voix.
-- **[hyp. forte]** Le pitch est poussé voix par voix par l'ARM : un bend par note
-  revient à remplacer, pour une voix, la composante bend du slot par une valeur propre.
+- `+0x00` = voice number; several sub-objects receive it too. **[sure]**
+- `voice_pitch_to_hw` (c002cd10) and `voice_pitch_mod_update` (c002ebfc) compute the
+  **per-voice pitch**: base + modulation (+0x160 / +0x17C / +0x168), exponential table
+  (exponent + mantissa) → frequency, written by `hw_write(bit0(id), address, value)`
+  (c014f0d0, ~300 calls). **[sure]**
+- Hardware number (`+0x118`): `bit0` = one destination out of two, `>>1` = index.
+  **[hyp.]** two synthesis chips / cores of 10 voices.
+- **[strong hyp.]** The pitch is pushed voice by voice by the ARM: a per-note bend amounts
+  to replacing, for one voice, the slot's bend component with a value of its own.
 
-## Allocation des voix
+## Voice allocation
 
-`note_event_handler` (c00263b4) est la méthode du gestionnaire de notes appelée par
-l'événement de type 4 (section « Du slot à l'allocateur »). Elle retrouve la note dans la
-table (`notemap_has`, `notemap_get`), puis traite : entrée active, mode (1/2/3 —
-**[hyp.]** poly / mono / legato), liste de ses voix, déclenchement ou relâchement de
-chaque voix.
+`note_event_handler` (c00263b4) is the note handler method called by the type 4 event
+(section "From the slot to the allocator"). It finds the note in the table
+(`notemap_has`, `notemap_get`), then handles: active entry, mode (1/2/3 — **[hyp.]**
+poly / mono / legato), list of its voices, triggering or releasing each voice.
 
-Objet allocateur : global, à `0xc04a7210 − 0xca0`. **[sûr pour la structure]**
+Allocator object: global, at `0xc04a7210 − 0xca0`. **[sure for the structure]**
 
-| Champ | Sens |
+| Field | Meaning |
 |---|---|
-| +0x04 | compteur d'événements (horodatage) |
-| +0x6C | nombre de notes actives |
-| +0x70 | tableau de pointeurs vers les notes actives |
+| +0x04 | event counter (timestamp) |
+| +0x6C | number of active notes |
+| +0x70 | array of pointers to the active notes |
 
-Note active :
+Active note:
 
-| Champ | Sens |
+| Field | Meaning |
 |---|---|
-| +0x00 | clé de tri (priorité / âge) — tri de Shell dans `alloc_note_on` / `alloc_update_sort` |
-| +0x04 | horodatage / propriétaire |
-| +0x14, +0x18 | identité de la note : **(slot, numéro de note)** |
-| +0x1C | état (0–3) |
-| +0x20 | drapeau mis à 1 au relâchement |
-| +0x28 | nombre de voix utilisées (unisson > 1) |
-| +0x2C | voix (pointeurs ; numéro de voix en +8) |
+| +0x00 | sort key (priority / age) — Shell sort in `alloc_note_on` / `alloc_update_sort` |
+| +0x04 | timestamp / owner |
+| +0x14, +0x18 | identity of the note: **(slot, note number)** |
+| +0x1C | state (0–3) |
+| +0x20 | flag set to 1 on release |
+| +0x28 | number of voices used (unison > 1) |
+| +0x2C | voices (pointers; voice number at +8) |
 
-`alloc_note_on` (c001b004, sans appelant) et `alloc_ev2` (c001a7a0) préparent et
-trient, puis appellent **`alloc_core`** (c0019884). Le chemin du type 1 passe, lui, par
-`alloc_pick` (section « Du slot à l'allocateur ») ; il reste à le comparer avec
-`alloc_core`. Ce qu'on sait d'`alloc_core` :
-- réservoir de **64 notes** (entrées de 0x80 octets), distinct des 20 voix ;
-- nombre de voix par note passé à l'appel : 1 en poly, plus en unisson ;
-- les voix sont prises sur les notes en tête de la liste triée ; la clé combine état,
-  âge et autres critères (vol de voix). Détail des bits non décodé.
+`alloc_note_on` (c001b004, no caller) and `alloc_ev2` (c001a7a0) prepare and sort, then
+call **`alloc_core`** (c0019884). The type 1 path goes through `alloc_pick` instead
+(section "From the slot to the allocator"); it remains to be compared with `alloc_core`.
+What is known about `alloc_core`:
+- pool of **64 notes** (0x80-byte entries), separate from the 20 voices;
+- number of voices per note passed in the call: 1 in poly, more in unison;
+- voices are taken from the notes at the head of the sorted list; the key combines state,
+  age and other criteria (voice stealing). Bit layout not decoded.
 
-## Identité d'une note : (slot, numéro de note)  [sûr]
+## Identity of a note: (slot, note number)  [sure]
 
-C'est **le premier obstacle pour le MPE**.
+This is **the first obstacle for MPE**.
 
-- Les événements de note portent `+8` = **numéro de slot** (index dans le tableau des
-  slots) et `+0xC` = **numéro de note** (hauteur calculée depuis `note − 64`).
-- L'allocateur recopie cette paire (`+0x14`, `+0x18`).
-- Chaque slot tient un **tableau de 128 touches** (`+0x1C`), le nombre de touches tenues
-  (`+0x224`), la plus basse et la plus haute (`+0x21C` / `+0x220`) :
-  `slot_queue_note_on` / `slot_queue_note_off` (c0028780 / c0027888).
-- Le canal MIDI n'y figure pas. **Il disparaît dès l'appel au slot** : `target_note_on`
-  transmet des paires {note, vélocité}, sans le canal.
+- Note events carry `+8` = **slot number** (index in the slot array) and `+0xC` = **note
+  number** (pitch computed from `note − 64`).
+- The allocator copies this pair (`+0x14`, `+0x18`).
+- Each slot keeps a **128-key array** (`+0x1C`), the number of held keys (`+0x224`), the
+  lowest and the highest (`+0x21C` / `+0x220`): `slot_queue_note_on` /
+  `slot_queue_note_off` (c0028780 / c0027888).
+- The MIDI channel is not there. **It disappears as soon as the slot is called**:
+  `target_note_on` passes {note, velocity} pairs, without the channel.
 
-Deux doigts sur la même hauteur dans le même slot (courant sur LinnStrument) seraient
-confondus. Endroits qui indexent par numéro de note, du premier au dernier :
+Two fingers on the same pitch in the same slot (common on a LinnStrument) would be merged.
+Places that index by note number, from first to last:
 
-| où | structure | indexée par |
+| where | structure | indexed by |
 |---|---|---|
-| cible | table [zone][note] (une zone par (port, canal)) | déjà par canal |
-| filtre de destinations | 128 octets d'état | note |
-| arpégiateur | tables de 128 notes | note |
-| slot | table de 128 touches | note |
-| table des notes | arbre | `note | slot << 8` |
-| file d'événements | entrée {slot, note} | (slot, note) |
-| allocateur | note active +0x14 / +0x18 | (slot, note) |
+| target | table [zone][note] (one zone per (port, channel)) | already by channel |
+| destination filter | 128 state bytes | note |
+| arpeggiator | 128-note tables | note |
+| slot | 128-key table | note |
+| note table | tree | `note | slot << 8` |
+| event queue | entry {slot, note} | (slot, note) |
+| allocator | active note +0x14 / +0x18 | (slot, note) |
 
-**Piste la plus simple** : faire passer une note « étendue » `note + 128 × canal` à partir
-de `target_note_on`. Les tables de 128 deviendraient 128 × 16, ou bien l'arpégiateur et
-le filtre seraient contournés en mode MPE. La clé de l'arbre (`note | slot << 8`) doit
-alors être élargie (`slot << 12`), sinon la note 256 du slot 0 vaut la note 0 du
-slot 1. Enfin, il faudra masquer (`& 0x7F`) partout où la note sert à la hauteur :
-`note_on_build_voices`, le suivi de clavier de `slot_note_on`, l'affichage.
+**Simplest idea**: pass an "extended" note `note + 128 × channel` from `target_note_on`
+on. The 128-entry tables would become 128 × 16, or the arpeggiator and the filter would be
+bypassed in MPE mode. The tree key (`note | slot << 8`) must then be widened
+(`slot << 12`), otherwise note 256 of slot 0 equals note 0 of slot 1. Finally, the note
+would have to be masked (`& 0x7F`) everywhere it is used for pitch:
+`note_on_build_voices`, the keyboard tracking of `slot_note_on`, the display. (Stage 9
+renumbers notes instead: `docs/patches.md`.)
 
-## Construction des voix d'une note
+## Building the voices of a note
 
-`note_on_build_voices` (c00268d0) : hauteur de chaque voix =
-`(note − 64 + décalage_i) × 0x10000` (décalages : Chord Memory / unisson **[hyp.]**).
-Le relâchement (`note_off_event`, c002718c, type 5) passe par `alloc_note_off_collect`
-et dépend des réglages du slot (`+0x22C`).
+`note_on_build_voices` (c00268d0): pitch of each voice =
+`(note − 64 + offset_i) × 0x10000` (offsets: Chord Memory / unison **[hyp.]**). Release
+(`note_off_event`, c002718c, type 5) goes through `alloc_note_off_collect` and depends on
+the slot settings (`+0x22C`).
 
-## Contrôleurs de jeu du slot
+## Performance controllers of the slot
 
-Le slot hérite de trois interfaces (vtables en `0xc01bd738`, +0x60, +0x6C). La 2ᵉ
-(`slot+4`, une seule méthode) reçoit les contrôleurs MIDI : relais
-`slot_midi_ctrl_in_thunk` (c000fb44, `sub r0, r0, #4`) → **`slot_midi_ctrl_in`**
-(c000fa58).
+The slot inherits three interfaces (vtables at `0xc01bd738`, +0x60, +0x6C). The 2nd
+(`slot+4`, a single method) receives MIDI controllers: relay `slot_midi_ctrl_in_thunk`
+(c000fb44, `sub r0, r0, #4`) → **`slot_midi_ctrl_in`** (c000fa58).
 
-`slot_controller_in` (c000fb8c) ne fait **pas** partie de ce chemin, malgré son nom : son
-`switch` (0–9) agit sur l'objet `slot+0x18`, et il est appelé à l'initialisation
-(`fn_c000fd80`). `fn_c00f04a4` est un aiguillage de 77 paramètres (0–0x4C) agissant sur le
-slot : probablement l'arrivée des CC et des réglages du panneau.
+`slot_controller_in` (c000fb8c) is **not** part of this path, despite its name: its
+`switch` (0–9) acts on the object at `slot+0x18`, and it is called at initialisation
+(`fn_c000fd80`). `fn_c00f04a4` is a switch over 77 parameters (0–0x4C) acting on the slot:
+probably where CCs and panel settings arrive.
 
-### `slot_midi_ctrl_in(slot, n°, valeur)`  [sûr]
+### `slot_midi_ctrl_in(slot, no., value)`  [sure]
 
-Mémorise la valeur en `slot+0x224 + n° × 4` (>> 16), puis la convertit en **paramètre
-du slot** par `slot_set_param` :
+Stores the value at `slot+0x224 + no. × 4` (>> 16), then converts it into a **slot
+parameter** through `slot_set_param`:
 
-| contrôleur | paramètre du slot | condition |
+| controller | slot parameter | condition |
 |---|---|---|
 | 5 (CC4) | 0x57 | |
-| 7 (molette) | 0x29 | `slot+0x260 == 1` |
-| **8 (pression)** | **0x29** (même destination que la molette) | `slot+0x260 == 2` |
+| 7 (wheel) | 0x29 | `slot+0x260 == 1` |
+| **8 (pressure)** | **0x29** (same destination as the wheel) | `slot+0x260 == 2` |
 | **9 (bend)** | **0x23** | |
 | 10 (CC7) | 0x56 | |
 | 11 (CC10) | 0x55 | |
 
-`slot+0x260` (écrit par `slot_set_wheel_src`) devait choisir qui pilote le paramètre
-0x29 : la molette (1) ou la pression (2). **La valeur 2 n'est jamais écrite** (voir
-« Molette, pression et morph par voix ») : dans l'OS 1.32, la pression ne fait rien.
+`slot+0x260` (written by `slot_set_wheel_src`) was meant to choose what drives parameter
+0x29: the wheel (1) or pressure (2). **The value 2 is never written** (see "Wheel,
+pressure and per-voice morph"): in OS 1.32, pressure does nothing.
 
-### `slot_set_param(slot, n°, &valeur)` (c000f93c)  [sûr]
+### `slot_set_param(slot, no., &value)` (c000f93c)  [sure]
 
-Mémorise la valeur en `slot+0x2D4 + n° × 4`, puis consulte les drapeaux du paramètre
-(octet `slot+0x278 + n°`, 6 par défaut, 0xF pour 0x3E, 0x3F, 0x43) :
-- bit 2 : envoi au **moteur du slot**. `engine_param_convert` (c001e7dc) donne la
-  fonction de conversion, `engine_param_handler` (c001e26c, `switch` sur le n°) la
-  méthode qui l'applique ;
-- bit 4 : envoi à **chaque voix du slot**. Boucle sur les 20 voix de `0xc04b0040` ; une
-  voix est prise si elle appartient à ce slot et si son état (`+8`) vaut 3.
-  `voice_param_handler` (c0029678) donne la méthode de la voix ;
-- bit 8 : 2ᵉ envoi au moteur (avec le code 8) ;
-- bit 1 : traitement différé (file).
+Stores the value at `slot+0x2D4 + no. × 4`, then looks at the parameter's flags (byte
+`slot+0x278 + no.`, 6 by default, 0xF for 0x3E, 0x3F, 0x43):
+- bit 2: sent to the **slot's engine**. `engine_param_convert` (c001e7dc) gives the
+  conversion function, `engine_param_handler` (c001e26c, `switch` on the number) the
+  method that applies it;
+- bit 4: sent to **each voice of the slot**. Loop over the 20 voices of `0xc04b0040`; a
+  voice is taken if it belongs to this slot and its state (`+8`) is 3.
+  `voice_param_handler` (c0029678) gives the voice's method;
+- bit 8: 2nd send to the engine (with code 8);
+- bit 1: deferred processing (queue).
 
-Pour 0x23 (bend), `voice_param_handler` n'a **pas** de cas : c'est la méthode par défaut
-(c00333d0, un simple `bx lr`). **Le bend n'est jamais envoyé voix par voix**,
-seulement au moteur du slot.
+For 0x23 (bend), `voice_param_handler` has **no** case: it is the default method
+(c00333d0, a plain `bx lr`). **Bend is never sent voice by voice**, only to the slot's
+engine.
 
-## Molette, pression et morph par voix  [sûr sauf mention]
+## Wheel, pressure and per-voice morph  [sure unless stated]
 
-### La pression est du code mort
-`slot+0x260` n'est écrit qu'à 0 (constructeur) et par `slot_set_wheel_src` (c000f510),
-dont le seul appelant, `slot_wheel_mode_apply` (c00f0270), et la même logique recopiée
-dans `fn_c00f0438`, ne passent que 0 ou 1. Le cas « pression → 0x29 » de `slot_midi_ctrl_in` ne
-s'exécute donc jamais. C'est cohérent avec le manuel : le Lead 4 n'a pas d'aftertouch,
-et la source de morph « Wheel » regroupe molette, pédale, CC1 et CC11. **Pour Z, il
-faudra un chemin neuf** ; rien n'est à défaire.
+### Pressure is dead code
+`slot+0x260` is only written as 0 (constructor) and by `slot_set_wheel_src` (c000f510),
+whose only caller, `slot_wheel_mode_apply` (c00f0270), and the same logic copied in
+`fn_c00f0438`, only pass 0 or 1. The "pressure → 0x29" case of `slot_midi_ctrl_in`
+therefore never runs. This is consistent with the manual: the Lead 4 has no aftertouch,
+and the "Wheel" morph source groups wheel, pedal, CC1 and CC11. **Z needs a new path**;
+nothing has to be undone.
 
-`slot_wheel_mode_apply` lit un mode à `+0x630` (0 à 3) et règle les paramètres 0x29,
-0x2B, 0x2C, 0x2D. Mode 3 : 0x29 = valeur courante de la molette, 0x2B = 100, la molette
-pilote 0x29. Modes 1 et 2 : 0x29 fixé à 127, 0x2B tiré de `+0x62C`, 0x2C / 0x2D
-constants. Mode 0 : tout à 0. Sens exact inconnu (réglage de la pédale ?) **[hyp.]**.
+`slot_wheel_mode_apply` reads a mode at `+0x630` (0 to 3) and sets parameters 0x29, 0x2B,
+0x2C, 0x2D. Mode 3: 0x29 = current wheel value, 0x2B = 100, the wheel drives 0x29. Modes 1
+and 2: 0x29 fixed at 127, 0x2B taken from `+0x62C`, 0x2C / 0x2D constant. Mode 0:
+everything at 0. Exact meaning unknown (pedal setting?) **[hyp.]**.
 
-### Le morph molette est global au slot
-0x29 n'a de cas que dans `engine_param_handler` (→ `engine_param_wheel_morph`, c0023e48),
-pas dans `voice_param_handler`. La méthode borne la valeur à 127, la passe par une
-courbe (produits 16 bits), écrit `moteur+0x878` / `+0x87C`, puis prévient l'objet
-`moteur+0x864` (c0052434) si un compteur a changé. Une seule valeur pour tout le slot.
+### The wheel morph is global to the slot
+0x29 only has a case in `engine_param_handler` (→ `engine_param_wheel_morph`, c0023e48),
+not in `voice_param_handler`. The method bounds the value to 127, passes it through a
+curve (16-bit products), writes `engine+0x878` / `+0x87C`, then notifies the object at
+`engine+0x864` (c0052434) if a counter changed. A single value for the whole slot.
 
-### Le morph de vélocité est calculé voix par voix
-`voice_param_handler` couvre 59 paramètres (0x00–0x20, 0x26–0x28, 0x2C–0x2F, 0x31,
-0x35–0x37, 0x3B, 0x3E–0x44, 0x46, 0x4B–0x4F) : **chaque voix garde sa propre copie des
-paramètres du son.** Avant d'appliquer une valeur, `slot_set_param` (bit 4) la fait
-passer par le convertisseur de la voix, l'objet `voix+0x48` :
+### The velocity morph is computed voice by voice
+`voice_param_handler` covers 59 parameters (0x00–0x20, 0x26–0x28, 0x2C–0x2F, 0x31,
+0x35–0x37, 0x3B, 0x3E–0x44, 0x46, 0x4B–0x4F): **each voice keeps its own copy of the
+sound's parameters.** Before applying a value, `slot_set_param` (bit 4) passes it through
+the voice's converter, the object at `voice+0x48`:
 
 ```
-voice_morph_eval (c0033538)  objet o = voix+0x48, paramètre n
-  e = table[n]  (o+0xC → +0xC, 5 mots : base, quantité vélocité, quantité clavier, min, max)
-  clavier = (o[1] + table+4) >> 7          o[1] = (note − 64) << 16  [hyp., par analogie]
-  valeur  = base + (o[2] + 1) × qté_vél >> 7 + f(clavier × qté_clavier)
-  (*(o+0x10))[n] = borne(valeur, min, max)       o[2] = vélocité  [hyp. forte]
+voice_morph_eval (c0033538)  object o = voice+0x48, parameter n
+  e = table[n]  (o+0xC → +0xC, 5 words: base, velocity amount, keyboard amount, min, max)
+  keyboard = (o[1] + table+4) >> 7          o[1] = (note − 64) << 16  [hyp., by analogy]
+  value    = base + (o[2] + 1) × vel_amount >> 7 + f(keyboard × keyboard_amount)
+  (*(o+0x10))[n] = bound(value, min, max)       o[2] = velocity  [strong hyp.]
 ```
 
-C'est la même formule que celle de `slot_note_on` pour l'arpégiateur. La vélocité et la
-note de chaque voix sont donc des **entrées par voix** d'un calcul par voix.
+It is the same formula as the one in `slot_note_on` for the arpeggiator. The velocity and
+the note of each voice are therefore **per-voice inputs** of a per-voice computation.
 
-### Où la vélocité entre dans la voix  [sûr]
-`voice_apply_velocity(voix, vélocité)` (c0032098), appelée par `note_event_handler`
-(c00263b4) pour chaque voix d'une note, sauf en mode 3 (legato **[hyp.]**) :
-- `voix[0xF]` = vélocité ; `voix[0x10]` = courbe de vélocité (terme en v²) ;
-- `voix[0x13]` = **`voice_pitch_offset(voix)`** (hauteur courante, bend compris) : c'est
-  l'entrée « clavier » du morph ; `voix[0x14]` = vélocité : l'entrée « vélocité » ;
-- puis évalue toute la table de morph de la voix (`voix[0x15]`, même formule que
-  `voice_morph_eval`) et pousse les résultats vers les sous-objets de la voix
-  (≈ 80 appels de réglage : oscillateurs, filtre, enveloppes).
+### Where velocity enters the voice  [sure]
+`voice_apply_velocity(voice, velocity)` (c0032098), called by `note_event_handler`
+(c00263b4) for each voice of a note, except in mode 3 (legato **[hyp.]**):
+- `voice[0xF]` = velocity; `voice[0x10]` = velocity curve (v² term);
+- `voice[0x13]` = **`voice_pitch_offset(voice)`** (current pitch, bend included): it is
+  the "keyboard" input of the morph; `voice[0x14]` = velocity: the "velocity" input;
+- then evaluates the whole morph table of the voice (`voice[0x15]`, same formula as
+  `voice_morph_eval`) and pushes the results to the voice's sub-objects (≈ 80 setting
+  calls: oscillators, filter, envelopes).
 
-C'est **la fonction à rappeler** pour Y / Z : elle recalcule tous les paramètres d'une
-voix sans redéclencher les enveloppes (déclenchement à part : c0032ec0, c00323b0,
-c0032708 **[hyp.]**). Coût estimé : quelques milliers d'instructions par appel, soit de
-l'ordre de 10 µs à 456 MHz **[hyp., à mesurer]**.
+This is **the function to call again** for Y / Z: it recomputes all parameters of a voice
+without retriggering the envelopes (triggering is separate: c0032ec0, c00323b0, c0032708
+**[hyp.]**). Estimated cost: a few thousand instructions per call, i.e. on the order of
+10 µs at 456 MHz **[hyp., to be measured]**.
 
-**Conséquence pour le MPE (Y / Z)** : faire varier en continu l'entrée vélocité `o[2]`
-d'une voix, depuis le CC74 ou la pression de son canal, puis recalculer et appliquer
-les paramètres de **cette voix seulement**. Toutes les destinations de morph
-« Velocity » d'un programme deviennent alors pilotées par Y ou Z, note par note, sans
-toucher au moteur ni au code SHARC. À vérifier : où `o[1]` et `o[2]` sont écrits au
-Note On, et le coût d'un recalcul complet à chaque message (20 voix maximum).
+**Consequence for MPE (Y / Z)**: vary the velocity input `o[2]` of a voice continuously,
+from the CC74 or the pressure of its channel, then recompute and apply the parameters of
+**that voice only**. All "Velocity" morph destinations of a program are then driven by Y or
+Z, note by note, without touching the engine or the SHARC code. To check: where `o[1]` and
+`o[2]` are written at Note On, and the cost of a full recomputation on each message (20
+voices at most).
 
-### Les deux étages du morph  [sûr sauf mention]
+### The two stages of the morph  [sure unless stated]
 
-Le morph s'applique en **deux étages** :
+The morph is applied in **two stages**:
 
-1. **Étage programme (global au slot) : Wheel et Impulse.** Chaque paramètre du
-   programme est un objet avec des écouteurs ; un adaptateur (c00f16e4, créé dans
-   `fn_c00ef064`) relaie toute nouvelle valeur vers `slot_param_in(prog, n°, valeur)`
-   (c00f04a4, 77 cas) puis `slot_set_param`. La valeur qui arrive au slot comprend déjà
-   l'effet des morphs Wheel et Impulse **[hyp. forte : rien dans le slot ni dans les
-   voix ne lit la molette pour les destinations]**. L'endroit exact où le modèle de
-   paramètres ajoute ces morphs n'est pas encore lu.
-2. **Étage voix : Velocity et Clavier.** Le moteur du slot tient un descripteur de morph
-   en `moteur+0x270` (`morph_table_ctor`, c0011ff8 : nombre, décalage clavier, ?,
-   entrées, sorties, vélocité, clavier). Une entrée de 0x14 octets par paramètre :
-   **{base, quantité Velocity, quantité Clavier, min, max}**.
-   - `slot_set_param` → `engine_morph_eval` (c0011f18) range la valeur reçue dans
-     `base`, puis calcule la valeur du moteur ;
-   - au déclenchement, chaque voix se lie au moteur (`voice_bind_engine`, c002f020 :
-     `voix+0x54 = moteur+0x270`) ; `voice_apply_velocity` et `voice_morph_eval`
-     calculent `base + vélocité × qté + clavier × qté`, borné, pour cette voix ;
-   - les quantités Velocity viennent du programme : `prog_morph_amount_in` (c00ef774,
-     méthode du programme) → `slot_set_vel_morph_amount` (c0010448) écrit
-     `entrée[i].qté_vélocité`. Une table de 3 octets par destination de morph (en BSS,
-     0xc04ed3fc) donne `i`, ou « Z » pour les destinations de l'arpégiateur
-     (`slot_set_arp_vel_morph_amount`, c0010450, descripteur `slot+0x4b0`).
+1. **Program stage (global to the slot): Wheel and Impulse.** Each program parameter is
+   an object with listeners; an adapter (c00f16e4, created in `fn_c00ef064`) forwards each
+   new value to `slot_param_in(prog, no., value)` (c00f04a4, 77 cases) then
+   `slot_set_param`. The value that reaches the slot already includes the effect of the
+   Wheel and Impulse morphs **[strong hyp.: nothing in the slot or the voices reads the
+   wheel for the destinations]**. The exact place where the parameter model adds these
+   morphs has not been read yet.
+2. **Voice stage: Velocity and Keyboard.** The slot's engine keeps a morph descriptor at
+   `engine+0x270` (`morph_table_ctor`, c0011ff8: count, keyboard offset, ?, entries,
+   outputs, velocity, keyboard). One 0x14-byte entry per parameter:
+   **{base, Velocity amount, Keyboard amount, min, max}**.
+   - `slot_set_param` → `engine_morph_eval` (c0011f18) stores the received value in
+     `base`, then computes the engine's value;
+   - on triggering, each voice binds to the engine (`voice_bind_engine`, c002f020:
+     `voice+0x54 = engine+0x270`); `voice_apply_velocity` and `voice_morph_eval` compute
+     `base + velocity × amount + keyboard × amount`, bounded, for that voice;
+   - Velocity amounts come from the program: `prog_morph_amount_in` (c00ef774, program
+     method) → `slot_set_vel_morph_amount` (c0010448) writes `entry[i].vel_amount`. A
+     table of 3 bytes per morph destination (in BSS, 0xc04ed3fc) gives `i`, or "Z" for the
+     arpeggiator's destinations (`slot_set_arp_vel_morph_amount`, c0010450, descriptor
+     `slot+0x4b0`).
 
-**Conséquence** : seul le second étage est par voix. Une source Y / Z par voix
-distincte de Velocity demande d'ajouter, par entrée, deux quantités (Y, Z) et deux
-entrées par voix, et d'étendre le calcul. Le format d'entrée (0x14 octets) est lu par
-quatre fonctions (`voice_morph_eval`, `voice_apply_velocity`, `engine_morph_eval`,
-`slot_note_on`) : plutôt que de l'élargir, tenir des **tables parallèles** (qté Y,
-qté Z par entrée) dans notre mémoire, et remplacer les deux fonctions de voix par les
-nôtres.
+**Consequence**: only the second stage is per voice. A per-voice Y / Z source separate
+from Velocity requires adding, per entry, two amounts (Y, Z) and two per-voice inputs, and
+extending the computation. The entry format (0x14 bytes) is read by four functions
+(`voice_morph_eval`, `voice_apply_velocity`, `engine_morph_eval`, `slot_note_on`): rather
+than widening it, keep **parallel tables** (Y amount, Z amount per entry) in our own
+memory, and replace the two voice functions with ours.
 
-### Sources de morph et entrées du moteur (2026-11-19)  [sûr sauf mention]
-- **Numéros des sources** **[hyp. forte]** : 0 = Wheel, 1 = Velocity, 2 à 8 = Impulse 1 à 7.
-  `prog_morph_amount_in` (vtable du programme 0xc03c0b10, entrée 6 ; copie pour la base
-  secondaire `fn_c00ef7ec`, `this` − 0x53c) reçoit (paramètre, source, quantité) et ne
-  transmet que la source 1 ; la fonction d'édition des morphs (c00eb378) appelle la même
-  méthode du modèle avec les sources 2 à 8.
-- **Descripteur de morph du moteur** (`moteur+0x270`, pointé par `voix[0x15]`) :
-  `[0]` nombre d'entrées, `[3]` entrées de 0x14 octets {base, qté Velocity, qté clavier,
-  min, max} partagées par les voix du slot, `[4]` sorties (brouillon partagé), `[5]`
-  vélocité, `[6]` clavier. Setters : c0011fa8 (qté Velocity), c0011fc0 (qté clavier),
-  c0011fd8 (min, max), `engine_morph_eval` (base).
-- **Table de morph de la voix** (`voix+0x48`, 90 entrées, `morph_table_ctor` dans
-  `voice_ctor`) : `voix[0x13]` = entrée clavier (hauteur), `voix[0x14]` = vélocité de la
-  note, `voix[0x15]` = descripteur du moteur, `voix[0x16]` = sorties de la voix.
-- `voice_apply_velocity` finit par `fn_c0022718(moteur)` puis un saut vers `fn_c002f898`
-  (6,7 Ko, ≈ 80 réglages des sous-objets), qui n'appelle aucun déclencheur d'enveloppe.
-  Celle-ci lit `voix+0x40` (courbe de vélocité) pour le gain d'ampli `voix+0x334` : piste
-  pour Z → Level.
-- **Modèle de paramètres du programme** : objet programme du slot s en `0xc04eb824[s]`
-  (constructeur `fn_c00ea050`, base `fn_c00e7660`), modèle en `+0x1a4`. Référence d'un
-  paramètre : `{modèle+0x30, n°}`. Lecture d'une quantité de morph :
-  `fn_c0118c24(modèle, &réf, source)` → `(*(modèle+0x14))->vt[0](n°, source)`. Écriture :
-  `modèle->vt[6](&réf, source, quantité, …)` (c00eb378, c00e4a70, c0108ecc).
-  `fn_c0116cdc` rend un objet dont `+8` est un masque des sources actives (`1 << source`).
-- **Le morph Wheel est calculé dans ce modèle**, pas dans le slot : la molette n'atteint le
-  moteur que par le paramètre 0x29 (`engine_param_wheel_morph`, une seule sortie globale :
-  molette² × `moteur+0x880` → `+0x878`, envoyée au SHARC). `prog_morph_amount_in` n'est
-  appelée qu'à l'édition ; au chargement, les quantités Velocity passent par `c00efbb4`
-  (réglage par n° de paramètre, appelant non trouvé).
-- Où la position de la molette multiplie la quantité, dans le modèle : toujours pas lu.
+### Morph sources and engine inputs (2026-11-19)  [sure unless stated]
+- **Source numbers** **[strong hyp.]**: 0 = Wheel, 1 = Velocity, 2 to 8 = Impulse 1 to 7.
+  `prog_morph_amount_in` (program vtable 0xc03c0b10, entry 6; copy for the secondary base
+  `fn_c00ef7ec`, `this` − 0x53c) receives (parameter, source, amount) and only forwards
+  source 1; the morph edit function (c00eb378) calls the same model method with sources
+  2 to 8.
+- **Engine morph descriptor** (`engine+0x270`, pointed to by `voice[0x15]`): `[0]` number
+  of entries, `[3]` 0x14-byte entries {base, Velocity amount, keyboard amount, min, max}
+  shared by the slot's voices, `[4]` outputs (shared scratch), `[5]` velocity, `[6]`
+  keyboard. Setters: c0011fa8 (Velocity amount), c0011fc0 (keyboard amount), c0011fd8
+  (min, max), `engine_morph_eval` (base).
+- **Morph table of the voice** (`voice+0x48`, 90 entries, `morph_table_ctor` in
+  `voice_ctor`): `voice[0x13]` = keyboard input (pitch), `voice[0x14]` = note velocity,
+  `voice[0x15]` = engine descriptor, `voice[0x16]` = voice outputs.
+- `voice_apply_velocity` ends with `fn_c0022718(engine)` then a jump to `fn_c002f898`
+  (6.7 KB, ≈ 80 sub-object settings), which calls no envelope trigger. That one reads
+  `voice+0x40` (velocity curve) for the amp gain `voice+0x334`: a lead for Z → Level.
+- **Program parameter model**: program object of slot s at `0xc04eb824[s]` (constructor
+  `fn_c00ea050`, base `fn_c00e7660`), model at `+0x1a4`. Reference to a parameter:
+  `{model+0x30, no.}`. Reading a morph amount: `fn_c0118c24(model, &ref, source)` →
+  `(*(model+0x14))->vt[0](no., source)`. Writing: `model->vt[6](&ref, source, amount, …)`
+  (c00eb378, c00e4a70, c0108ecc). `fn_c0116cdc` returns an object whose `+8` is a mask of
+  active sources (`1 << source`).
+- **The Wheel morph is computed in this model**, not in the slot: the wheel only reaches
+  the engine through parameter 0x29 (`engine_param_wheel_morph`, a single global output:
+  wheel² × `engine+0x880` → `+0x878`, sent to the SHARC). `prog_morph_amount_in` is only
+  called when editing; on load, Velocity amounts go through `c00efbb4` (setting by
+  parameter number, caller not found).
+- Where the wheel position multiplies the amount, in the model: still not read.
 
-### Aiguillage des CC et abonnés (2026-11-19)  [sûr]
-- Le parseur range un CC selon son numéro (`fn_c013cb68`) : 64 → type `0xc09140c4`, 66 →
-  `c8`, 67 → `cc`, 114 → `d0`, **tous les autres** (CC74 compris) → `0xc09140ac` ; les CC
-  identiques en attente sont fusionnés dans la file.
-- Abonnés : `fn_c0121938`, `fn_c0121c44`, `fn_c0122060` (deux fois), `fn_c0106344`,
-  `fn_c013da1c`. Chaque abonnement est un sous-objet de 3 mots ; le bus appelle l'entrée
-  [1] de **sa** vtable. Vtable principale (0xc03edc28) : [1] `midi_bend_in`, puis
-  pression et CC ; sous-objets : pression → relais `0xc0120390` (`sub r0, #12 ; b
-  midi_pressure_in`), CC → relais `0xc01202a4` (`sub r0, #24 ; b midi_cc_in`). Ces relais
-  sont partagés par les trois classes (0xc03bf3xx, 0xc03ed7xx, 0xc03edcxx). **Pour
-  intercepter les CC ou la pression, brancher le relais, pas l'entrée de vtable.**
+### CC routing and subscribers (2026-11-19)  [sure]
+- The parser sorts a CC by its number (`fn_c013cb68`): 64 → type `0xc09140c4`, 66 →
+  `c8`, 67 → `cc`, 114 → `d0`, **all others** (CC74 included) → `0xc09140ac`; identical
+  pending CCs are merged in the queue.
+- Subscribers: `fn_c0121938`, `fn_c0121c44`, `fn_c0122060` (twice), `fn_c0106344`,
+  `fn_c013da1c`. Each subscription is a 3-word sub-object; the bus calls entry [1] of
+  **its** vtable. Main vtable (0xc03edc28): [1] `midi_bend_in`, then pressure and CC;
+  sub-objects: pressure → relay `0xc0120390` (`sub r0, #12 ; b midi_pressure_in`), CC →
+  relay `0xc01202a4` (`sub r0, #24 ; b midi_cc_in`). These relays are shared by the three
+  classes (0xc03bf3xx, 0xc03ed7xx, 0xc03edcxx). **To intercept CCs or pressure, hook the
+  relay, not the vtable entry.**
 
-### CC74  [sûr pour le récepteur]
-`midi_cc_in` (c011ffc4) reçoit les CC avec leur port et leur canal. Seuls les CC de jeu
-vont aux cibles par `target_controller_in` : CC1 → n° 7, CC4 → 5, CC7 → 10, CC10 → 11,
-CC11 → 6, CC70 → 13, CC77 → 14. Les autres, dont le **CC74 (Filter Frequency)**,
-partent par un autre chemin (paramètres du panneau), non suivi : il n'est pas utile.
-Pour le MPE, il suffit d'intercepter le CC74 des canaux membres **dans `midi_cc_in`**,
-qui connaît le canal, et de l'envoyer vers l'entrée vélocité de la voix jouée sur ce
-canal. Sur le canal maître, le CC74 garde son sens habituel.
+### CC74  [sure for the receiver]
+`midi_cc_in` (c011ffc4) receives CCs with their port and channel. Only performance CCs go
+to the targets through `target_controller_in`: CC1 → no. 7, CC4 → 5, CC7 → 10, CC10 → 11,
+CC11 → 6, CC70 → 13, CC77 → 14. The others, including **CC74 (Filter Frequency)**, take
+another path (panel parameters), not followed: it is not needed. For MPE, it is enough to
+intercept the CC74 of member channels **in `midi_cc_in`**, which knows the channel, and
+send it to the velocity input of the voice played on that channel. On the master channel,
+CC74 keeps its usual meaning.
 
-### Cadence
-`synth_tick` est enregistré au démarrage comme gestionnaire de niveau 4
-(`fn_c0131e98(4, synth_tick)`, dans la fonction d'initialisation c00002a4). Sa fréquence
-n'est pas déterminée ; on sait qu'il recalcule déjà la hauteur des 20 voix à chaque
-passage. Le coût de Y / Z sera mesuré sur prototype (limiter à un recalcul par voix et
-par tick).
+### Rate
+`synth_tick` is registered at boot as a level 4 handler (`fn_c0131e98(4, synth_tick)`, in
+the initialisation function c00002a4). Its frequency is not determined; it is known to
+already recompute the pitch of the 20 voices on each pass. The cost of Y / Z will be
+measured on a prototype (limit to one recomputation per voice and per tick).
 
-## Chemin du pitch bend  [sûr]
+## Pitch bend path  [sure]
 
 ```
 midi_bend_in (c0120398)
-  └─ target_controller_in(cible, port, canal, 9, valeur −8192…+8191)
-       ctrl_scale_in (c011f004) : < 0 → × 1024 ; ≥ 0 → × 0x1FC1 / 8, borné à 0x7F0000
+  └─ target_controller_in(target, port, channel, 9, value −8192…+8191)
+       ctrl_scale_in (c011f004): < 0 → × 1024; ≥ 0 → × 0x1FC1 / 8, bounded to 0x7F0000
        └─ slot_midi_ctrl_in (c000fa58) → slot_set_param(slot, 0x23)
             └─ engine_param_bend (c0022f40) → bend_set_value(engine + 0x28C, v)
-                 objet « bend » du slot : cible en +0xC
-  synth_tick (c0010c34), à chaque tick :
-     pour chaque slot actif : lissage +0x14 → +0xC en 32 pas (pas en +0x18)
-     puis pour les 20 voix : voice_pitch_tick (c002eff8) → voice_pitch_mod_update(voix, 0)
-          hauteur = voice_pitch_offset(voix + 0x590, engine + 0x28C)
-                  = bend lissé (+0x14) + transposition du slot + glide de la voix
+                 the slot's "bend" object: target at +0xC
+  synth_tick (c0010c34), at each tick:
+     for each active slot: smoothing +0x14 → +0xC in 32 steps (step at +0x18)
+     then for the 20 voices: voice_pitch_tick (c002eff8) → voice_pitch_mod_update(voice, 0)
+          pitch = voice_pitch_offset(voice + 0x590, engine + 0x28C)
+                = smoothed bend (+0x14) + slot transposition + voice glide
 ```
 
-**L'objet bend** (`slot_engine+0x28C`, créé par `bend_ctor`, c001c894) :
-`[0]` → structure de 0x21C octets, `[4]` = transposition du slot (octave × 12 + demi-tons
-+ fin, méthodes c001cbbc / c001cbfc / c001cc3c). La structure contient :
+**The bend object** (`slot_engine+0x28C`, created by `bend_ctor`, c001c894): `[0]` → a
+0x21C-byte structure, `[4]` = slot transposition (octave × 12 + semitones + fine, methods
+c001cbbc / c001cbfc / c001cc3c). The structure contains:
 
-| champ | sens |
+| field | meaning |
 |---|---|
-| +0x04 | plage vers le haut (demi-tons, 2 par défaut) |
-| +0x08 | plage vers le bas (demi-tons, 2 par défaut) |
-| +0x0C | bend cible (demi-tons en 16.16) |
-| +0x10 / +0x18 | dernière cible vue / pas du lissage |
-| +0x14 | bend lissé, **lu par toutes les voix du slot** |
-| +0x1C… | table de 128 valeurs (courbe cubique), recalculée par `bend_set_range` ; usage inconnu |
+| +0x04 | upward range (semitones, 2 by default) |
+| +0x08 | downward range (semitones, 2 by default) |
+| +0x0C | target bend (semitones in 16.16) |
+| +0x10 / +0x18 | last seen target / smoothing step |
+| +0x14 | smoothed bend, **read by all voices of the slot** |
+| +0x1C… | table of 128 values (cubic curve), recomputed by `bend_set_range`; use unknown |
 
-**Bend Range** = paramètres du moteur : **0x21** (`engine_param_bend_range`, c0023208)
-règle les deux sens (`engine+0x250`), **0x22** (`engine_param_bend_down`, c0022fc0) le sens
-descendant seul (`engine+0x254`, cas asymétrique −12 / −24). Les deux appellent
-`bend_set_range` (c001c9d8). `slot_set_bend_range` (c000fb4c, entrée 15 de la vtable du
-slot) envoie 0x21 et 0x22 d'un coup.
+**Bend Range** = engine parameters: **0x21** (`engine_param_bend_range`, c0023208) sets
+both directions (`engine+0x250`), **0x22** (`engine_param_bend_down`, c0022fc0) the
+downward direction alone (`engine+0x254`, asymmetric case −12 / −24). Both call
+`bend_set_range` (c001c9d8). `slot_set_bend_range` (c000fb4c, entry 15 of the slot's
+vtable) sends 0x21 and 0x22 at once.
 
-**Courbe** (`bend_set_value`, c001cb30), v = ±0x800000 (0x7F0000 est traité comme
-+0x800000) :
+**Curve** (`bend_set_value`, c001cb30), v = ±0x800000 (0x7F0000 is treated as
++0x800000):
 
 ```
-bend = 2 × v / 0x800000                          (linéaire sur 2 demi-tons)
-     + (plage − 2) × (v / 0x800000)² × signe(v)  (parabolique au-delà)
+bend = 2 × v / 0x800000                          (linear over 2 semitones)
+     + (range − 2) × (v / 0x800000)² × sign(v)   (parabolic beyond)
 ```
 
-**La courbe n'est pas linéaire au-delà de 2 demi-tons.** Avec une plage de 48, un bend à
-mi-course donne 1 + 46 / 4 = 12,5 demi-tons au lieu de 24. Le MPE suppose une
-correspondance linéaire (glissés de hauteur des contrôleurs), donc **le bend MPE aura
-besoin de sa propre échelle linéaire**. La résolution de 14 bits est conservée jusque-là.
+**The curve is not linear beyond 2 semitones.** With a range of 48, a half-way bend gives
+1 + 46 / 4 = 12.5 semitones instead of 24. MPE assumes a linear mapping (pitch glides of
+the controllers), so **the MPE bend needs its own linear scale**. The 14-bit resolution is
+kept up to that point.
 
-**Pour le MPE :**
-- **Point d'injection** : `voice_pitch_offset` (c001ccf4, 3 appelants :
-  `voice_pitch_mod_update`, `voice_pitch_tick` via celui-ci, et la mise en hauteur au
-  Note On `fn_c0032098`). Elle additionne déjà un terme **propre à la voix** : le glide
-  (`voix+0x590`, réglé par les paramètres de voix 0x26–0x28). Un bend par note
-  s'ajoute au même endroit : bend du slot remplacé (ou complété) par une valeur de la
-  voix, en échelle linéaire.
-- Le recalcul a déjà lieu **à chaque tick, pour les 20 voix**, quand un slot est actif.
-  `voice_pitch_mod_update` sort tôt si la valeur combinée n'a pas changé. Il n'y a donc
-  rien à ajouter pour la cadence : il suffit que la valeur par voix change.
-- Le lissage sur 32 ticks se fait par slot. Un bend par note voudra le sien (ou aucun, les
-  contrôleurs MPE envoyant des valeurs denses).
-- À déterminer : la durée d'un tick (fréquence de `synth_tick`).
+**For MPE:**
+- **Injection point**: `voice_pitch_offset` (c001ccf4, 3 callers: `voice_pitch_mod_update`,
+  `voice_pitch_tick` through it, and the pitch setting at Note On `fn_c0032098`). It
+  already adds a **voice-specific** term: the glide (`voice+0x590`, set by voice
+  parameters 0x26–0x28). A per-note bend is added at the same place: the slot's bend
+  replaced (or complemented) by a value of the voice, on a linear scale.
+- The recomputation already happens **at every tick, for the 20 voices**, when a slot is
+  active. `voice_pitch_mod_update` exits early if the combined value has not changed.
+  There is therefore nothing to add for the rate: it is enough for the per-voice value to
+  change.
+- Smoothing over 32 ticks is done per slot. A per-note bend will want its own (or none,
+  since MPE controllers send dense values).
+- To be determined: the duration of a tick (frequency of `synth_tick`).
 
-## Questions ouvertes, par ordre d'utilité pour le MPE
+## Open questions, in order of usefulness for MPE
 
-1. ~~Du graphe MIDI au slot~~ : fait jusqu'au gestionnaire de notes. Reste le rôle des
-   deux chemins d'allocation (`alloc_pick` / `alloc_core`). **Pitch stick du panneau** : son chemin
-   n'est pas trouvé. Il n'emprunte pas `midi_bend_in` de façon visible, et
-   `midi_routing_setup` n'ajoute que le canal global. Le plus simple : tester sur
-   l'instrument (deux slots en Keyboard Focus hors Performance, bouger le stick).
-2. ~~Pitch bend~~ : fait (section « Chemin du pitch bend »).
-3. ~~Pression, morph, CC74~~ : fait (section « Molette, pression et morph par voix »).
-   Reste le rôle de `slot+0x630` et comment le morph Wheel atteint les voix (pour Z).
-4. Politique exacte du vol de voix (bits de la clé) et limite éventuelle par slot.
-5. Les deux destinations de `hw_write` (les deux SHARC, 10 voix chacun [hyp. forte]) et
-   la fréquence de `synth_tick`.
+1. ~~From the MIDI graph to the slot~~: done up to the note handler. Remaining: the role
+   of the two allocation paths (`alloc_pick` / `alloc_core`). **Panel pitch stick**: its
+   path has not been found. It does not visibly use `midi_bend_in`, and
+   `midi_routing_setup` only adds the global channel. Simplest: test on the instrument (two
+   slots in Keyboard Focus outside Performance, move the stick).
+2. ~~Pitch bend~~: done (section "Pitch bend path").
+3. ~~Pressure, morph, CC74~~: done (section "Wheel, pressure and per-voice morph").
+   Remaining: the role of `slot+0x630` and how the Wheel morph reaches the voices (for Z).
+4. Exact voice-stealing policy (bits of the key) and any per-slot limit.
+5. The two destinations of `hw_write` (the two SHARCs, 10 voices each [strong hyp.]) and
+   the frequency of `synth_tick`.

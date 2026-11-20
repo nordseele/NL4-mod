@@ -1,98 +1,97 @@
-# Format `os.cab` (Nord Lead 4 OS v1.32)
+# `os.cab` format (Nord Lead 4 OS v1.32)
 
-Source : `Update Nord Lead 4 OS v1.32.app/Contents/Resources/os.cab` (3 074 576 octets,
-SHA-256 `42bbad95…ed16819`). Le programme Mac (`Nord OS Update`, wxWidgets) ne décompresse
-rien : il découpe le fichier en sections et les envoie par USB
-(`CITProtocol::ParseAndSendBinFileSections`). La décompression se fait sur le clavier.
-Protocole de mise à jour : `docs/update-protocol.md`.
+Source: `Update Nord Lead 4 OS v1.32.app/Contents/Resources/os.cab` (3,074,576 bytes,
+SHA-256 `42bbad95…ed16819`). The Mac program (`Nord OS Update`, wxWidgets) decompresses
+nothing: it splits the file into sections and sends them over USB
+(`CITProtocol::ParseAndSendBinFileSections`). Decompression happens on the keyboard.
+Update protocol: `docs/update-protocol.md`.
 
-## En-tête du fichier (big-endian)  [sûr : lu dans l'updater, `Zevs::CCabHeader`]
+## File header (big-endian)  [sure: read in the updater, `Zevs::CCabHeader`]
 
-Quatre couples (offset, taille), un par programme ; les couples vides valent 0. L'updater
-vérifie qu'ils ne se chevauchent pas.
+Four (offset, size) pairs, one per program; empty pairs are 0. The updater checks that
+they do not overlap.
 
-| Offset | Valeur | Sens |
+| Offset | Value | Meaning |
 |---|---|---|
-| 0x00 / 0x04 | 0x20 / 0x2a2b9e | image 1 (OS) : offset, taille |
-| 0x08 / 0x0c | 0x2a2bbe / 0x4be52 | image 2 (test usine) : offset, taille |
-| 0x10–0x1c | 0 | inutilisés |
+| 0x00 / 0x04 | 0x20 / 0x2a2b9e | image 1 (OS): offset, size |
+| 0x08 / 0x0c | 0x2a2bbe / 0x4be52 | image 2 (factory test): offset, size |
+| 0x10–0x1c | 0 | unused |
 
-## En-tête d'image (0x2d4 octets, big-endian)  [sûr : `Zevs::CBinHeader`]
+## Image header (0x2d4 bytes, big-endian)  [sure: `Zevs::CBinHeader`]
 
-| Offset | Type | Sens |
+| Offset | Type | Meaning |
 |---|---|---|
-| 0x00 | u16 | version (0x84 = 1.32 ; 0x70 pour l'image 2) |
-| 0x02 | u8 | type (doit valoir 1) |
+| 0x00 | u16 | version (0x84 = 1.32; 0x70 for image 2) |
+| 0x02 | u8 | type (must be 1) |
 | 0x03 | u8 | 0 |
 | 0x04 | u16 | build (0x32a = 810) |
-| 0x06 | u16 | **somme de l'en-tête** = `~(somme des octets de [0x08, 0x2d4)) & 0xffff` |
-| 0x08 | u32 | adresse de départ (0x00640000 ; ne doit pas valoir 0xffffffff) |
+| 0x06 | u16 | **header sum** = `~(sum of the bytes of [0x08, 0x2d4)) & 0xffff` |
+| 0x08 | u32 | start address (0x00640000; must not be 0xffffffff) |
 | 0x0c | u32 | 0 |
-| 0x10 | u32 | nombre de sections (3) |
-| 0x14 | 16 × 0x2c | emplacements de section (3 utilisés) |
+| 0x10 | u32 | number of sections (3) |
+| 0x14 | 16 × 0x2c | section slots (3 used) |
 
-Les offsets de section comptent depuis le début de l'image (cet en-tête). Les sections
-se suivent sans alignement, juste après l'en-tête (0x2d4).
+Section offsets count from the start of the image (this header). Sections follow each
+other without alignment, right after the header (0x2d4).
 
-### Ce que vérifie l'updater Mac avant d'envoyer  [sûr]
-`CUpdateEngine::ParseAndDisplayFileInfo` : `CCabFile::Verify` (couples cohérents), puis
-`CBinFile::Verify` sur l'image 1 : en-tête non vide, somme de l'en-tête, type 1,
-adresse de départ ≠ −1, et pour chaque section : étiquette en ASCII imprimable et
-somme 16 bits des octets envoyés (`~Get16` = 16 bits de poids faible de notre
-checksum, compressé si la section l'est). Échec → « OS BinFile seems broken ».
-Version et build sont ensuite affichés (`GetOSString`).
+### What the Mac updater checks before sending  [sure]
+`CUpdateEngine::ParseAndDisplayFileInfo`: `CCabFile::Verify` (consistent pairs), then
+`CBinFile::Verify` on image 1: non-empty header, header sum, type 1, start address ≠ −1,
+and for each section: tag in printable ASCII and 16-bit sum of the sent bytes (`~Get16` =
+low 16 bits of our checksum, compressed if the section is). Failure → "OS BinFile seems
+broken". Version and build are then shown (`GetOSString`).
 
 ## Sections
 
-| Image | Tag | Adresse | Taille | Stockage |
+| Image | Tag | Address | Size | Storage |
 |---|---|---|---|---|
-| 1 (OS) | SRAM | 0x80000000 | 0x1c24 | brut |
-| 1 (OS) | CODE | 0xc0000000 | 0x40b530 | LZO1X, 0x2a0a3e octets |
-| 1 (OS) | ARM0 | 0xffff0020 | 0x268 | brut |
-| 2 (test usine) | SRAM | 0x80000000 | 0x1490 | brut |
-| 2 (test usine) | CODE | 0xc0000000 | 0x89098 | LZO1X, 0x4a472 octets |
-| 2 (test usine) | ARM0 | 0xffff0020 | 0x27c | brut |
+| 1 (OS) | SRAM | 0x80000000 | 0x1c24 | raw |
+| 1 (OS) | CODE | 0xc0000000 | 0x40b530 | LZO1X, 0x2a0a3e bytes |
+| 1 (OS) | ARM0 | 0xffff0020 | 0x268 | raw |
+| 2 (factory test) | SRAM | 0x80000000 | 0x1490 | raw |
+| 2 (factory test) | CODE | 0xc0000000 | 0x89098 | LZO1X, 0x4a472 bytes |
+| 2 (factory test) | ARM0 | 0xffff0020 | 0x27c | raw |
 
-Les adresses correspondent à la carte mémoire du TI **AM1705** vu sur la carte (famille
-OMAP-L137, ARM926 seul, `docs/hardware.md`) : RAM partagée 0x80000000, SDRAM (EMIFB)
-0xc0000000, RAM locale ARM et vecteurs hauts 0xffff0000. ARM little-endian. Le point d'entrée (0xffff0040) fait `ldr pc, =0xc0000000`.
+The addresses match the memory map of the TI **AM1705** seen on the board (OMAP-L137
+family, ARM926 only, `docs/hardware.md`): shared RAM 0x80000000, SDRAM (EMIFB)
+0xc0000000, ARM local RAM and high vectors 0xffff0000. Little-endian ARM. The entry point
+(0xffff0040) does `ldr pc, =0xc0000000`.
 
-## Offsets des sections  [corrigé le 2026-11-18]
+## Section offsets  [corrected on 2026-11-18]
 
-Une section occupe `taille` octets (ou `taille compressée`) à partir de
-`début de l'image + 0x20 + offset`. Ses octets sont chargés tels quels à l'adresse de
-chargement.
+A section occupies `size` bytes (or `compressed size`) from
+`start of the image + 0x20 + offset`. Its bytes are loaded as they are at the load
+address.
 
-Erreur précédente : on comptait l'offset depuis le début du préambule, donc 0x20 octets
-trop tôt. Les 0x20 octets « d'en-tête non chargé » qu'on croyait voir au début de chaque
-section étaient en fait **la fin de la section précédente** : des zéros après SRAM,
-et pour ARM0 les derniers octets du flux LZO de CODE, avec son marqueur de fin
-`11 00 00`. Il manquait donc à chaque section ses 0x20 derniers octets. Les adresses
-déjà publiées ne changent pas : l'ancienne image CODE est exactement le début de la
-nouvelle, qui a 0x20 octets de plus.
+Previous mistake: the offset was counted from the start of the preamble, hence 0x20
+bytes too early. The 0x20 bytes of "unloaded header" that seemed to appear at the start of
+each section were actually **the end of the previous section**: zeros after SRAM, and for
+ARM0 the last bytes of the CODE LZO stream, with its end marker `11 00 00`. Each section
+was therefore missing its last 0x20 bytes. Addresses already published do not change: the
+old CODE image is exactly the start of the new one, which has 0x20 more bytes.
 
-## Compression : LZO1X
+## Compression: LZO1X
 
-Flux LZO1X standard, **avec** son marqueur de fin. Il occupe exactement la taille
-compressée et donne exactement la taille déclarée (images 1 et 2). L'« octet de
-trop » et l'« input overrun » de liblzo2 notés auparavant venaient de l'offset décalé.
+Standard LZO1X stream, **with** its end marker. It occupies exactly the compressed size
+and gives exactly the declared size (images 1 and 2). The "extra byte" and the liblzo2
+"input overrun" noted before came from the shifted offset.
 
-## Checksums : résolus  [sûr]
+## Checksums: solved  [sure]
 
-Pour les 6 sections des deux images, `tools/unpack_oscab.py` les vérifie à chaque
-extraction :
-- **checksum** = `~(somme des octets de la section) & 0xffffffff`, octets non signés,
-  section décompressée ;
-- **checksum du flux compressé** = la même formule sur les octets compressés ;
-- sections stockées brutes : checksum du flux = 0.
+For the 6 sections of both images, `tools/unpack_oscab.py` checks them at each
+extraction:
+- **checksum** = `~(sum of the section's bytes) & 0xffffffff`, unsigned bytes,
+  decompressed section;
+- **compressed stream checksum** = the same formula on the compressed bytes;
+- raw-stored sections: stream checksum = 0.
 
-Pour un firmware modifié : recalculer ces deux sommes, les tailles, les offsets, et la
-somme de l'en-tête d'image. `tools/pack_oscab.py` le fait (voir plus bas). Le programme
-Mac a aussi un CRC-32 (`Zevs::CRC::CCRC32` : CRC-32
-réfléchi, registre initial 0xFFFFFFFF, complément final ; `CCRC32X` rend 0 pour un
-registre nul). Il sert au transport (« Message CRC error »), pas aux sections.
+For a modified firmware: recompute these two sums, the sizes, the offsets, and the image
+header sum. `tools/pack_oscab.py` does it (see below). The Mac program also has a CRC-32
+(`Zevs::CRC::CCRC32`: reflected CRC-32, initial register 0xFFFFFFFF, final complement;
+`CCRC32X` returns 0 for a null register). It is used for transport ("Message CRC error"),
+not for sections.
 
-## Hachés de référence (charges utiles, sortie de `tools/rebuild.sh`)
+## Reference hashes (payloads, output of `tools/rebuild.sh`)
 
 ```
 img1_ARM0_ffff0020.bin  7554211a164a4b2aa7e9a2ee7adfbb002c621de1885ddddba9ef0935476e6cc9
@@ -103,19 +102,18 @@ img2_CODE_c0000000.bin  376e1b11ed8ae04bdd288787aa803ce0b7c8887a5da0c32e1a8ee575
 img2_SRAM_80000000.bin  d9ebae40678cb0dfe92ad578fdf520446263a422e59d7569f79c61b705947f8c
 ```
 
-## Reconstruire `os.cab` : `tools/pack_oscab.py`  [vérifié hors instrument]
+## Rebuilding `os.cab`: `tools/pack_oscab.py`  [checked off the instrument]
 
-Remplace des sections de l'image 1 (`TAG=fichier`), recompresse, recalcule sommes,
-tailles, offsets et somme d'en-tête, recopie l'image 2, puis relit le résultat comme
-l'updater et le clavier (décompression complète et vérification de toutes les sommes).
+Replaces sections of image 1 (`TAG=file`), recompresses, recomputes sums, sizes, offsets
+and header sum, copies image 2, then reads the result back the way the updater and the
+keyboard do (full decompression and check of all sums).
 
-- **Aller-retour sans modification** : les six sections réextraites sont identiques
-  octet pour octet aux originales.
-- **Compression** : Nord n'utilise ni LZO1X-1 ni LZO1X-999 tels quels (flux CODE de
-  2 755 134 octets). Avec python-lzo niveau 9 (LZO1X-999) : 2 555 912 octets, fichier
-  complet de 2 875 354 octets (**200 Ko de moins que l'officiel**). Sans python-lzo,
-  repli sur un LZO1X-1 en Python : 2 978 357 octets (+223 Ko).
-- Les flux produits sont décompressés à l'identique par la vraie liblzo2 (python3-lzo,
-  conteneur jetable) et par notre décodeur.
-- Non vérifié : que le programme Update du clavier accepte le fichier (palier 1 du
-  prototype, `docs/faisabilite.md`).
+- **Round trip without changes**: the six re-extracted sections are identical byte for
+  byte to the originals.
+- **Compression**: Nord uses neither LZO1X-1 nor LZO1X-999 as is (CODE stream of
+  2,755,134 bytes). With python-lzo level 9 (LZO1X-999): 2,555,912 bytes, complete file of
+  2,875,354 bytes (**200 KB less than the official one**). Without python-lzo, fallback to
+  a Python LZO1X-1: 2,978,357 bytes (+223 KB).
+- The produced streams are decompressed identically by the real liblzo2 (python3-lzo,
+  throwaway container) and by our decoder.
+- The keyboard's Update program accepts the file: checked in stage 1 (`docs/patches.md`).

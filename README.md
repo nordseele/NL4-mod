@@ -32,16 +32,51 @@ hardware testing was done by me, on my own Nord Lead 4.
 
 ## What it adds
 
-- **MPE Lower Zone:** member channels 2 to 16, in addition to the global channel.
-- **Per-note pitch bend**, range 48, 24, 12 or 2 semitones.
-- **Y and Z per note**, each routed to the Wheel morph, the Velocity morph or Filter
-  Freq directly; Z can also drive the voice level.
-- Response curves for Y and Z, and an option to scale Z by the note velocity.
-- Slot channels A–D that fall on a member channel are ignored while MPE is on.
-- All settings are new entries at the end of the **MIDI** menu, saved with the other
-  global settings. See [docs/patches.md](docs/patches.md), "Palier 11 en détail".
+MPE is played **from an external MPE controller only** (LinnStrument, Osmose, Seaboard…),
+over USB or 5-pin MIDI. The Nord Lead 4's own keyboard has no aftertouch and sends no
+per-note expression: it keeps working as before.
 
-The research notes in `docs/` and [HANDOFF.md](HANDOFF.md) are in French.
+- **MPE Lower Zone:** member channels 2 to 16, in addition to the global channel. Notes go
+  to the slot(s) in Keyboard Focus.
+- **Per-note pitch bend**, range 48, 24, 12 or 2 semitones.
+- **Per-note Y (CC74) and Z (pressure)**, each routed to the program's Wheel morph, its
+  Velocity morph or Filter Freq directly; Z can also drive the voice level.
+- **Pressure as Channel Pressure or Poly Aftertouch:** on a member channel, both are read
+  as the Z of that channel's note (7-bit values).
+- Response curves for Y and Z, and an option to scale Z by the note velocity.
+- The same pitch can be held on several channels, each note keeping its own expression.
+- Slot channels A–D that fall on a member channel are ignored while MPE is on.
+
+## MIDI menu settings
+
+The settings are new entries **at the end of the MIDI menu**, after entry 8: turn the dial
+to reach them, hold Shift and turn to change the value. They are saved with the other
+global settings. The display shows the entry letter, a dot and the value, e.g. `E.On`.
+The first value is the default.
+
+| Display | Setting | Values |
+|---|---|---|
+| `E` | **MPE** | `Of` off · `On` on |
+| `r` | **Bend range** of the member channels | `48` · `24` · `12` · ` 2` semitones |
+| `y` | **Y (CC74) goes to** | `nO` Wheel morph · `vE` Velocity morph · `Fr` Filter Freq directly · `Of` nothing |
+| `C` | **Y curve** | `Li` linear · `CA` square (slow at the bottom) · `dO` soft (fast at the bottom) |
+| `P` | **Z (pressure) goes to** | `LE` level (from silence to the normal level) · `nO` Wheel morph · `vE` Velocity morph · `Fr` Filter Freq · `Of` nothing · `vL` Z replaces the velocity of the level (small range, about 6 dB) |
+| `H` | **Z curve** | `CA` square · `Li` linear · `dO` soft |
+| `v` | **Z × velocity** | `Of` Z alone · `On` Z scaled by the note's velocity |
+
+Why these letters: the display cannot show a `Z` (it would read as a `2`, already used by
+Local), hence `P` for pressure and `E` for MPE. `nO` stands for the wheel (the French word
+"moLette", the `n` standing in for an `M`), and `vE` reads as "UE" on the display.
+
+Tips:
+- Set the controller to an MPE lower zone with a pitch-bend range equal to `r` (48 by
+  default), and keep the slot channels A–D on Off or on channel 1.
+- `y.nO` and `P.nO` use the program's own Wheel morph: pick a program whose wheel does
+  something, and keep the physical wheel down (Y and Z add to it).
+- On the LinnStrument, send Z as Channel Pressure or Poly Aftertouch, not in 14-bit mode.
+
+Details of each setting, and how it was built step by step:
+[docs/patches.md](docs/patches.md), "Stage 11 in detail".
 
 ## Repository layout
 
@@ -62,8 +97,9 @@ The research notes in `docs/` and [HANDOFF.md](HANDOFF.md) are in French.
 | `docs/oscab-format.md` | `os.cab` format, sections, compression, checksums | yes |
 | `docs/update-protocol.md` | update protocol (Mac program), keyboard modes, safety | yes |
 | `docs/hardware.md` | main board: chips, SPI flash, P5 connector, recovery | yes |
-| `docs/faisabilite.md` | feasibility study: verdict, changes, Y/Z options, prototype plan | yes |
-| `docs/patches.md` | patches, steps (« paliers »), test procedure on the instrument | yes |
+| `docs/feasibility.md` | feasibility study: verdict, changes, Y/Z options, prototype plan | yes |
+| `docs/nord-stage-2-notes.md` | what may carry over to an MPE project on the Nord Stage 2 | yes |
+| `docs/patches.md` | patches, stages (`palierN` in file names), test procedure on the instrument | yes |
 | `docs/sharc.md` | SHARC code: location, format, Ghidra import | yes |
 | `docs/voices-midi.md` | MIDI input, slots, voices, allocator (research notes) | yes |
 | `docs/menus.md` | System, MIDI and Sound menus | yes |

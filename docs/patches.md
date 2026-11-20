@@ -1,681 +1,672 @@
-# Patchs de l'OS et procédure d'essai
+# OS patches and test procedure
 
-État au 2026-11-19 : paliers 1 à 3 essayés sur l'instrument, tous réussis (« Résultats des essais » en fin de fichier).
+Status on 2026-11-20: stages 1 to 11 tried on the instrument; the current stage (11) works
+("Test results" at the end of this file). The code files keep the French word for a stage:
+`palierN.c`, `build/palierN_os.app`.
 
-## Fabrication
+## Building
 
 ```sh
-docker build -t nl4-arm tools/patch                          # une fois : GCC ARM + python3-lzo
+docker build -t nl4-arm tools/patch                          # once: GCC ARM + python3-lzo
 docker run --rm -v "$PWD":/w nl4-arm python3 -I tools/pack_oscab.py ghidra/bin/os.cab build/palier1_os.cab
-docker run --rm -v "$PWD":/w nl4-arm python3 -I tools/patch/build.py palier2   # ou palier3, palier4, palier5
+docker run --rm -v "$PWD":/w nl4-arm python3 -I tools/patch/build.py palier2   # or palier3 … palier11
 tools/patch/make_updater.sh build/palier2_os.cab             # -> build/palier2_os.app
 ```
 
-`build/` est hors git (il contient le firmware Clavia).
+`build/` is not in git (it contains Clavia's firmware).
 
-**Où va notre code.** Dans les 0xad0 octets libres entre la fin du CODE officiel
-(0xc040b530) et la première variable statique (0xc040c000). La table de démarrage
-(0xc0404fb4 : copie de 0x40b530 octets, puis remise à zéro de 0x526008 octets jusqu'à
-0xc0931538) effacerait cette zone : `build.py` déplace le début de la remise à zéro
-après notre code (deux mots), sans changer sa fin. Pour des patchs plus gros : la
-section SRAM agrandie (`docs/faisabilite.md`).
+**Where our code goes.** Into the 0xad0 free bytes between the end of the official CODE
+(0xc040b530) and the first static variable (0xc040c000). The startup table
+(0xc0404fb4: copy of 0x40b530 bytes, then zeroing of 0x526008 bytes up to 0xc0931538)
+would clear this area: `build.py` moves the start of the zeroing past our code (two words),
+without changing its end. For larger patches: the enlarged SRAM section
+(`docs/feasibility.md`), or dead code areas (stage 10).
 
-**Garde-fous de `build.py`.** Chaque mot modifié est comparé à sa valeur d'origine avant
-écriture ; pas de variables globales dans le patch ; taille bornée au trou ; liste du
-code produit dans `build/<palier>/patch.lst`. `pack_oscab.py` relit ensuite tout le
-fichier comme l'updater et le clavier.
+**Safeguards in `build.py`.** Every modified word is compared with its original value
+before writing; no global variables in the patch (except where placed explicitly); size
+bounded by the hole; listing of the produced code in `build/<stage>/patch.lst`.
+`pack_oscab.py` then re-reads the whole file the way the updater and the keyboard do.
 
-**Installer un `os.cab`.** L'updater lit `Contents/Resources/os.cab` dans son propre
-paquet (`CImageTransferFrame::ReadOSResource`), sans autre contrôle que ceux de
-`docs/oscab-format.md`. `make_updater.sh` copie l'application depuis le dmg officiel,
-remplace ce fichier, lui donne **son propre identifiant et son nom** (`CFBundleIdentifier`
-`….<palier>`, `CFBundleName` = nom du palier, visible dans la barre de menus), retire la
-quarantaine et la signe en ad hoc. Sans identifiant propre, macOS peut ramener au premier
-plan une copie déjà ouverte (ou en choisir une autre depuis Spotlight / le Dock) et
-reflasher l'OS précédent : c'est la cause soupçonnée du diagnostic sans effet du
-2026-11-19. La copie se lance sans
-problème (essayé le 2026-11-19).
+**Installing an `os.cab`.** The updater reads `Contents/Resources/os.cab` inside its own
+bundle (`CImageTransferFrame::ReadOSResource`), with no checks other than those of
+`docs/oscab-format.md`. `make_updater.sh` copies the application from the official dmg,
+replaces that file, gives it **its own identifier and name** (`CFBundleIdentifier`
+`….<stage>`, `CFBundleName` = stage name, visible in the menu bar), removes the quarantine
+flag and signs it ad hoc. Without its own identifier, macOS may bring an already open copy
+to the front (or pick another one from Spotlight / the Dock) and reflash the previous OS:
+the suspected cause of the ineffective diagnostic of 2026-11-19. The copy launches
+without problems (tried on 2026-11-19).
 
-## Paliers
+## Stages
 
-| Palier | Fichier | Contenu | SHA-256 de `os.cab` |
+| Stage | File | Contents | SHA-256 of `os.cab` |
 |---|---|---|---|
-| 0 | dmg officiel | répétition : réinstaller l'OS 1.32 officiel | `42bbad95…ed16819` |
-| 1 | `build/palier1_os.app` | OS officiel recompressé (LZO1X-999), sections identiques | `af3342c3…fee6240` |
-| 2 | `build/palier2_os.app` | un slot écoute aussi les canaux 2 à 16 | `d821c4ee…5f92cfab` |
-| 3 | `build/palier3_os.app` | palier 2 + bend par note ±48 sur les canaux 2 à 16 | `d1e20a19…63562ce09` |
-| 4 | `build/palier4_os.app` | palier 3 + Y (CC74) par note → entrée vélocité de la voix | `adad2f09…965a8b51` |
-| 5 | `build/palier5_os.app` | palier 3 + Y (CC74) par note → **morph Wheel** de la voix (remplace le palier 4) | `0bf5f7a5…21f97fd6` (3ᵉ version, relais CC corrigé) |
-| 6 | `build/palier6_os.app` | palier 5 + **Z (pression) → Level** par note, Y lissé, quantités Wheel sur 16 bits (remplace le palier 5) | `d3675dcd…29aa009b0` |
-| 7 | `build/palier7_os.app` | palier 6, mais Y n'applique que les paramètres morphés, un par un, comme la molette | `d7aa9d2c…a6e78e85bc9f1a55` |
-| 8 | `build/palier8_os.app` | palier 7, Z → Level jouable : Poly AT accepté, courbe Z², Z remplace la vélocité pour le volume, relâche préservée | `8e2a4db9…5ede0b8578d18721` |
-| 9 | `build/palier9_os.app` | palier 8 + **même hauteur sur plusieurs canaux** (note renumérotée, hauteur corrigée par voix) | `f877453a…3ee5d8a4` (2ᵉ version : Note Off répétable) |
-| 10 | `build/palier10_os.app` | palier 9, **MPE réglé au menu MIDI** (P, r, y, L), sauvegardé ; ne dépend plus du canal global | `74acf1e8…91ac54d5` (3ᵉ version, **essayée : OK** ; 2ᵉ `b74493fb…` : démarre, `P` n'agit qu'après redémarrage ; 1ʳᵉ `5b3caf19…` : ne redémarre pas) |
-| 11 | `build/palier11_os.app` | palier 10 + destinations de Y et Z au choix (molette / vélocité / Filter Freq / volume pour Z), courbes, Z × vélocité, canaux A–D ignorés en MPE ; MPE sur `E`, Z sur `P` | `1b7fb57c…c2274204` (4ᵉ version, **essayée : OK** : `LE` = volume × Z ; 3ᵉ `f5db51f3…` : `LE` marche, ≈ 6 dB ; 1ʳᵉ et 2ᵉ : `LE` sans effet) |
-| 11 diag | `build/palier11diag_os.app` | palier 11 + vélocité, `voix+0x3c` et gain de volume de la dernière note au menu | `d17d8c96…246fc5b3` (avec la 4ᵉ version ; relevé fait avec `0dffbea9…`) |
-| 9 bis | `build/palier9dead_os.app` | diagnostic : palier 9 avec ses deux enveloppes de notes dans la zone morte du palier 10 | `d45724c1…6ae545b92` |
+| 0 | official dmg | rehearsal: reinstall the official OS 1.32 | `42bbad95…ed16819` |
+| 1 | `build/palier1_os.app` | official OS recompressed (LZO1X-999), identical sections | `af3342c3…fee6240` |
+| 2 | `build/palier2_os.app` | a slot also listens to channels 2 to 16 | `d821c4ee…5f92cfab` |
+| 3 | `build/palier3_os.app` | stage 2 + per-note bend ±48 on channels 2 to 16 | `d1e20a19…63562ce09` |
+| 4 | `build/palier4_os.app` | stage 3 + per-note Y (CC74) → velocity input of the voice | `adad2f09…965a8b51` |
+| 5 | `build/palier5_os.app` | stage 3 + per-note Y (CC74) → **Wheel morph** of the voice (replaces stage 4) | `0bf5f7a5…21f97fd6` (3rd version, CC relay fixed) |
+| 6 | `build/palier6_os.app` | stage 5 + **Z (pressure) → Level** per note, smoothed Y, 16-bit Wheel amounts (replaces stage 5) | `d3675dcd…29aa009b0` |
+| 7 | `build/palier7_os.app` | stage 6, but Y only applies the morphed parameters, one by one, like the wheel | `d7aa9d2c…a6e78e85bc9f1a55` |
+| 8 | `build/palier8_os.app` | stage 7, playable Z → Level: Poly AT accepted, Z² curve, Z replaces velocity for the level, release preserved | `8e2a4db9…5ede0b8578d18721` |
+| 9 | `build/palier9_os.app` | stage 8 + **same pitch on several channels** (renumbered note, pitch corrected per voice) | `f877453a…3ee5d8a4` (2nd version: repeatable Note Off) |
+| 10 | `build/palier10_os.app` | stage 9, **MPE set in the MIDI menu** (P, r, y, L), saved; no longer depends on the global channel | `74acf1e8…91ac54d5` (3rd version, **tried: OK**; 2nd `b74493fb…`: boots, `P` only acts after a restart; 1st `5b3caf19…`: does not boot) |
+| 11 | `build/palier11_os.app` | stage 10 + selectable Y and Z destinations (wheel / velocity / Filter Freq / level for Z), curves, Z × velocity, channels A–D ignored in MPE; MPE on `E`, Z on `P` | `1b7fb57c…c2274204` (4th version, **tried: OK**: `LE` = level × Z; 3rd `f5db51f3…`: `LE` works, ≈ 6 dB; 1st and 2nd: `LE` has no effect) |
+| 11 diag | `build/palier11diag_os.app` | stage 11 + velocity, `voice+0x3c` and level gain of the last note shown in the menu | `d17d8c96…246fc5b3` (with the 4th version; reading taken with `0dffbea9…`) |
+| 9 bis | `build/palier9dead_os.app` | diagnostic: stage 9 with its two note wrappers in the dead area of stage 10 | `d45724c1…6ae545b92` |
 
-### Palier 2 en détail (`tools/patch/palier2.c`)
+### Stage 2 in detail (`tools/patch/palier2.c`)
 
-Différences avec l'officiel, vérifiées par réextraction (4 mots + 0xc8 octets ajoutés) :
+Differences from the official image, checked by re-extraction (4 words + 0xc8 bytes added):
 
-| Adresse | Avant | Après | Rôle |
+| Address | Before | After | Role |
 |---|---|---|---|
-| 0xc00e0540 | `bl 0xc00df898` | `bl 0xc040b530` | création des zones de notes → `mpe_zone_setup` |
-| 0xc0404fc0 | 0x40b530 | 0x40b5f8 | table de démarrage : fin de la partie conservée |
-| 0xc0404fc4 | 0x526008 | 0x525f40 | table de démarrage : remise à zéro (fin inchangée) |
-| 0xc040aad8 | 4 | 36 | zones (port, canal) par cible de notes |
+| 0xc00e0540 | `bl 0xc00df898` | `bl 0xc040b530` | note zone creation → `mpe_zone_setup` |
+| 0xc0404fc0 | 0x40b530 | 0x40b5f8 | startup table: end of the preserved part |
+| 0xc0404fc4 | 0x526008 | 0x525f40 | startup table: zeroing (end unchanged) |
+| 0xc040aad8 | 4 | 36 | (port, channel) zones per note target |
 
-`mpe_zone_setup` appelle la création d'origine, puis, **si le canal MIDI global vaut 1**,
-ajoute à chaque slot des zones « canal global » (qui suivent le Keyboard Focus) pour les
-canaux 2 à 16, sur chaque port MIDI activé. Avec un autre canal global, le comportement est
-celui d'origine.
+`mpe_zone_setup` calls the original creation, then, **if the global MIDI channel is 1**,
+adds "global channel" zones (which follow the Keyboard Focus) to each slot for channels
+2 to 16, on each enabled MIDI port. With another global channel, the behaviour is the
+original one.
 
-**Risques connus.** (1) Mémoire : 36 zones au lieu de 4 par cible, ≈ 2,5 Ko par zone,
-soit de l'ordre de 1 Mo de tas en plus **[estimation]**. (2) Les notes pourraient aussi
-dépendre d'un masque de canaux que ce palier ne touche pas : c'est ce que l'essai dira.
-Le bend, la pression et les CC des canaux 2 à 16 ne sont pas encore reçus (palier 3).
+**Known risks.** (1) Memory: 36 zones instead of 4 per target, ≈ 2.5 KB per zone, i.e.
+on the order of 1 MB of extra heap **[estimate]**. (2) Notes might also depend on a channel
+mask that this stage does not touch: the test will tell. Bend, pressure and CCs of
+channels 2 to 16 are not received yet (stage 3).
 
-### Palier 3 en détail (`tools/patch/palier3.c`, avec `palier2.c`)
+### Stage 3 in detail (`tools/patch/palier3.c`, with `palier2.c`)
 
-0x548 octets (code et tables), 12 mots modifiés, vérifiés par réextraction :
+0x548 bytes (code and tables), 12 modified words, checked by re-extraction:
 
-| Adresse | Avant | Après | Rôle |
+| Address | Before | After | Role |
 |---|---|---|---|
-| 0xc011ffac | `target_note_on` | `mpe_target_note_on` | pointeur dans `midi_noteon_dispatch` : pose le canal courant |
-| 0xc00119f8 | `b slot_queue_note_on` | `b mpe_queue_note_on` | note `chan_of[slot][note]` |
-| 0xc01bde58 | `note_on_build_voices` | `mpe_build_voices` | gestionnaire de notes vt[2] (type 3) |
-| 0xc01bde5c | `note_event_handler` | `mpe_note_event` | vt[3] (type 4) : relie voix et canal |
-| 0xc03bf32c, 0xc03ed740, 0xc03edc2c | `midi_bend_in` | `mpe_bend_in` | les trois tables de réception (bend, pression, CC) |
-| 0xc001ccf4 | 1ʳᵉ instruction de `voice_pitch_offset` | `b mpe_voice_pitch_offset` | fonction remplacée : formule d'origine + bend de la voix |
-| (+ les 4 mots du palier 2) | | | |
+| 0xc011ffac | `target_note_on` | `mpe_target_note_on` | pointer in `midi_noteon_dispatch`: sets the current channel |
+| 0xc00119f8 | `b slot_queue_note_on` | `b mpe_queue_note_on` | records `chan_of[slot][note]` |
+| 0xc01bde58 | `note_on_build_voices` | `mpe_build_voices` | note handler vt[2] (type 3) |
+| 0xc01bde5c | `note_event_handler` | `mpe_note_event` | vt[3] (type 4): binds voices and channel |
+| 0xc03bf32c, 0xc03ed740, 0xc03edc2c | `midi_bend_in` | `mpe_bend_in` | the three receive tables (bend, pressure, CC) |
+| 0xc001ccf4 | 1st instruction of `voice_pitch_offset` | `b mpe_voice_pitch_offset` | replaced function: original formula + the voice's bend |
+| (+ the 4 words of stage 2) | | | |
 
-Fonctionnement :
-1. `mpe_target_note_on` met le canal du message dans `g_chan` pendant l'appel d'origine ;
-   dans la même pile d'appels, `mpe_queue_note_on` range `canal + 1` pour chaque
-   (slot, note) qui part vers l'allocateur.
-2. Après les méthodes qui démarrent les voix (types 3 et 4), `bind_voices` relit dans la
-   table des notes les voix de (slot, note) et leur attribue ce canal.
-3. `mpe_bend_in` : si la zone MPE est active et le canal est 2 à 16, la valeur est gardée
-   dans `g_bend[canal]` et **n'atteint pas le slot** ; le canal 1 garde le bend commun
-   (avec la plage et la courbe du programme).
-4. `mpe_voice_pitch_offset` ajoute à chaque voix `bend × 384` (±8192 → ±48 demi-tons en
-   16.16, linéaire, sans lissage).
+How it works:
+1. `mpe_target_note_on` puts the message's channel in `g_chan` during the original call;
+   in the same call stack, `mpe_queue_note_on` stores `channel + 1` for each
+   (slot, note) sent to the allocator.
+2. After the methods that start voices (types 3 and 4), `bind_voices` reads back from the
+   note table the voices of (slot, note) and assigns them that channel.
+3. `mpe_bend_in`: if the MPE zone is active and the channel is 2 to 16, the value is kept
+   in `g_bend[channel]` and **does not reach the slot**; channel 1 keeps the common bend
+   (with the program's range and curve).
+4. `mpe_voice_pitch_offset` adds `bend × 384` to each voice (±8192 → ±48 semitones in
+   16.16, linear, no smoothing).
 
-**Limites connues.** Deux doigts sur la même hauteur dans le même slot partagent la même
-entrée (niveau 1 de `docs/faisabilite.md`). L'arpégiateur et la Chord Memory ne sont
-pas pris en compte. Pression et CC74 des canaux membres pas encore traités.
+**Known limits.** Two fingers on the same pitch in the same slot share the same entry
+(level 1 of `docs/feasibility.md`). The arpeggiator and Chord Memory are not handled.
+Pressure and CC74 of member channels not handled yet.
 
-### Palier 4 en détail (`tools/patch/palier4.c`, avec `palier2.c` et `palier3.c`)
+### Stage 4 in detail (`tools/patch/palier4.c`, with `palier2.c` and `palier3.c`)
 
-0x648 octets (code et tables), 16 mots modifiés, vérifiés par réextraction (SRAM, ARM0 et
-image 2 identiques à l'officiel). Le palier 3 reconstruit garde le même SHA-256 : rendre
-`voice_chan` visible depuis `palier4.c` ne change pas le binaire.
+0x648 bytes (code and tables), 16 modified words, checked by re-extraction (SRAM, ARM0 and
+image 2 identical to the official ones). The rebuilt stage 3 keeps the same SHA-256: making
+`voice_chan` visible from `palier4.c` does not change the binary.
 
-| Adresse | Avant | Après | Rôle |
+| Address | Before | After | Role |
 |---|---|---|---|
-| 0xc03bf334, 0xc03ed748, 0xc03edc34 | `midi_cc_in` | `mpe_cc_in` | les trois tables de réception, entrée CC |
-| 0xc0000480 | `synth_tick` | `mpe_synth_tick` | pool de l'initialisation : gestionnaire de niveau 4 |
-| (+ les 12 mots du palier 3) | | | |
+| 0xc03bf334, 0xc03ed748, 0xc03edc34 | `midi_cc_in` | `mpe_cc_in` | the three receive tables, CC entry |
+| 0xc0000480 | `synth_tick` | `mpe_synth_tick` | init literal pool: level 4 handler |
+| (+ the 12 words of stage 3) | | | |
 
-Fonctionnement :
-1. `mpe_cc_in` : si la zone MPE est active, un CC74 des canaux 2 à 16 est gardé dans
-   `g_y[canal]` et **n'atteint pas le panneau** (Filter Freq ne bouge pas pour tout le
-   slot). Le CC74 du canal 1 et tous les autres CC suivent le chemin d'origine.
-2. `mpe_synth_tick` appelle `synth_tick`, puis, pour chaque voix jouée (octet `+8` = 3,
-   le test de `slot_set_param`) liée à un canal membre qui a déjà reçu un CC74 : si
-   l'entrée vélocité de la voix (`voix[0x14]`) diffère du Y du canal, il rappelle
-   `voice_apply_velocity(voix, Y)`. Ce rappel recalcule toutes les destinations du morph
-   Velocity de cette voix, sans redéclencher les enveloppes (`fn_c002f898`, appelé en fin,
-   n'appelle aucun des déclencheurs c0032ec0 / c00323b0 / c0032708).
-3. Le Note On remet la vélocité de la note dans `voix[0x14]` ; au tick suivant, le Y courant
-   du canal la remplace (le contrôleur MPE envoie son Y initial avant le Note On).
-   Au plus un recalcul par voix et par tick, et seulement quand Y change.
+How it works:
+1. `mpe_cc_in`: if the MPE zone is active, a CC74 on channels 2 to 16 is kept in
+   `g_y[channel]` and **does not reach the panel** (Filter Freq does not move for the whole
+   slot). CC74 on channel 1 and all other CCs follow the original path.
+2. `mpe_synth_tick` calls `synth_tick`, then, for each played voice (byte `+8` = 3, the
+   test of `slot_set_param`) bound to a member channel that has already received a CC74:
+   if the velocity input of the voice (`voice[0x14]`) differs from the channel's Y, it calls
+   `voice_apply_velocity(voice, Y)` again. This recomputes all Velocity-morph destinations
+   of that voice, without retriggering the envelopes (`fn_c002f898`, called at the end,
+   calls none of the triggers c0032ec0 / c00323b0 / c0032708).
+3. The Note On puts the note's velocity back into `voice[0x14]`; at the next tick, the
+   channel's current Y replaces it (the MPE controller sends its initial Y before the Note On).
+   At most one recomputation per voice and per tick, and only when Y changes.
 
-Pourquoi `synth_tick` : le firmware y vide déjà la file de notes (`fn_c002787c` →
-`note_queue_drain`), donc `voice_apply_velocity` y tourne déjà au Note On. On reste dans
-le même contexte que le code d'origine.
+Why `synth_tick`: the firmware already drains the note queue there (`fn_c002787c` →
+`note_queue_drain`), so `voice_apply_velocity` already runs there on Note On. We stay in
+the same context as the original code.
 
-**Limites connues.** (1) **Y remplace la vélocité** de la note pour toute la voix : la
-courbe de vélocité de l'ampli (`voix+0x40` → `+0x354` / `+0x334`) suit aussi Y, donc avec
-un programme dont l'enveloppe d'ampli réagit à la vélocité, Y module aussi le volume. Les
-sources Y / Z distinctes de Velocity (`docs/faisabilite.md`) lèveront cette limite.
-(2) Coût non mesuré : 20 voix × un recalcul au pire par tick **[≈ 10 µs par voix, hyp.]**.
-(3) Un programme sans destination de morph Velocity ne réagit pas à Y (attendu).
+**Known limits.** (1) **Y replaces the note's velocity** for the whole voice: the amp's
+velocity curve (`voice+0x40` → `+0x354` / `+0x334`) also follows Y, so with a program
+whose amp envelope reacts to velocity, Y also modulates the level. Y / Z sources separate
+from Velocity (`docs/feasibility.md`) will lift this limit.
+(2) Cost not measured: 20 voices × one recomputation at worst per tick **[≈ 10 µs per
+voice, hyp.]**. (3) A program without a Velocity-morph destination does not react to Y
+(expected).
 
-### Palier 5 en détail (`tools/patch/palier5.c`, avec `palier2.c` et `palier3.c`)
+### Stage 5 in detail (`tools/patch/palier5.c`, with `palier2.c` and `palier3.c`)
 
-Remplace le palier 4 : Y ne prend plus la place de la vélocité, il agit comme **un morph
-Wheel propre à chaque note**. Les programmes d'usine qui ont un morph Wheel parlant
-réagissent donc à Y sans réglage. 0xa00 octets sur les 0xad0 du trou (il reste 0xd0).
-14 mots modifiés, vérifiés par réextraction (SRAM, ARM0 et image 2 identiques).
+Replaces stage 4: Y no longer takes the place of velocity, it acts as **a Wheel morph of
+its own for each note**. Factory programs with a meaningful Wheel morph therefore react to
+Y without any setting. 0xa00 bytes of the 0xad0 of the hole (0xd0 left).
+14 modified words, checked by re-extraction (SRAM, ARM0 and image 2 identical).
 
-**2ᵉ version (2026-11-19).** La 1ʳᵉ enveloppait `prog_morph_amount_in` pour capter les
-quantités Wheel : sur l'instrument, Y n'avait aucun effet. Cette méthode n'est appelée qu'à
-l'**édition** d'un morph ; au chargement, les quantités Velocity passent par un autre
-chemin (`c00efbb4`), et les quantités Wheel restent dans le modèle de paramètres du
-programme, qui calcule le morph Wheel lui-même. La 2ᵉ version **interroge le modèle**.
+**2nd version (2026-11-19).** The 1st wrapped `prog_morph_amount_in` to capture the Wheel
+amounts: on the instrument, Y had no effect. That method is only called when a morph is
+**edited**; on load, Velocity amounts go through another path (`c00efbb4`), and Wheel
+amounts stay in the program's parameter model, which computes the Wheel morph itself. The
+2nd version **queries the model**.
 
-| Adresse | Avant | Après | Rôle |
+| Address | Before | After | Role |
 |---|---|---|---|
-| 0xc01bde58, 0xc01bde5c | `note_on_build_voices`, `note_event_handler` | `mpe5_…` | ceux du palier 3, plus une demande de recalcul |
-| 0xc01202a8 | `b midi_cc_in` | `b mpe_cc_in` | relais du sous-objet CC (voir ci-dessous) |
-| 0xc0000480 | `synth_tick` | `mpe_synth_tick` | comme le palier 4, autre contenu |
-| (+ les 10 autres mots du palier 3) | | | |
+| 0xc01bde58, 0xc01bde5c | `note_on_build_voices`, `note_event_handler` | `mpe5_…` | those of stage 3, plus a recomputation request |
+| 0xc01202a8 | `b midi_cc_in` | `b mpe_cc_in` | CC sub-object relay (see below) |
+| 0xc0000480 | `synth_tick` | `mpe_synth_tick` | as in stage 4, different contents |
+| (+ the 10 other words of stage 3) | | | |
 
-Fonctionnement :
-1. **Quantités Wheel.** Modèle du slot s : `*(0xc04eb824[s] + 0x1a4)` (objet programme du
-   slot, champ posé par son constructeur `fn_c00e7660`). Pour chacune des 78 destinations
-   (table 0xc04ed3fc, 3 octets par destination, `[1]` = entrée de morph) :
-   `fn_c0118c24(modèle, {modèle+0x30, n°}, 0)` rend la quantité Wheel, rangée dans
-   `wq[s][entrée]` (bornée à ±127). Relu à chaque recalcul (Note On, tous les 32 ticks), un
-   slot par tick au plus une fois. Numérotation **[hyp. forte]** : 0 = Wheel, 1 = Velocity,
-   2 à 8 = les 7 Impulse (manuel : 9 sources ; la fonction d'édition c00eb378 envoie 2 à 8).
-2. **CC74 des canaux membres** : gardé par canal, n'atteint pas le panneau (palier 4).
-3. **Application, dans `synth_tick`** : pour une voix jouée sur un canal membre, quand son Y
-   change, après un Note On, ou tous les 32 ticks : `base += (Y + 1) × qté Wheel / 128` sur
-   les entrées de morph du slot, `voice_apply_velocity(voix, vélocité de la note)`, puis
-   la base est rendue. Les entrées sont partagées par les voix du slot, mais rien ne
-   tourne entre l'ajout et le retrait (même contexte que le palier 4).
-4. Le recalcul tous les 32 ticks rattrape un réglage du panneau : `slot_set_param`
-   recalcule les voix paramètre par paramètre, sans notre terme.
+How it works:
+1. **Wheel amounts.** Model of slot s: `*(0xc04eb824[s] + 0x1a4)` (program object of the
+   slot, field set by its constructor `fn_c00e7660`). For each of the 78 destinations
+   (table 0xc04ed3fc, 3 bytes per destination, `[1]` = morph entry):
+   `fn_c0118c24(model, {model+0x30, no.}, 0)` returns the Wheel amount, stored in
+   `wq[s][entry]` (bounded to ±127). Re-read at each recomputation (Note On, every 32
+   ticks), at most one slot per tick, once. Numbering **[strong hyp.]**: 0 = Wheel,
+   1 = Velocity, 2 to 8 = the 7 Impulse sources (manual: 9 sources; the edit function
+   c00eb378 sends 2 to 8).
+2. **CC74 of member channels**: kept per channel, does not reach the panel (stage 4).
+3. **Application, in `synth_tick`**: for a voice played on a member channel, when its Y
+   changes, after a Note On, or every 32 ticks: `base += (Y + 1) × Wheel amount / 128` on
+   the slot's morph entries, `voice_apply_velocity(voice, note velocity)`, then the base is
+   restored. The entries are shared by the slot's voices, but nothing runs between the
+   addition and the removal (same context as stage 4).
+4. The recomputation every 32 ticks catches up with a panel change: `slot_set_param`
+   recomputes the voices parameter by parameter, without our term.
 
-**Limites connues.** (1) La molette physique agit toujours sur toutes les notes ; Y
-s'ajoute à elle. (2) Si Y ne fait toujours rien : soit la source 0 n'est pas
-Wheel, soit le modèle n'est pas celui du slot ; essayer aussi d'éditer un morph Wheel. (3) Quantités bornées à ±127 (pleine échelle d'un
-paramètre, comme Velocity). (4) Destinations de l'arpégiateur ignorées. (5) Coût : comme
-le palier 4, plus un recalcul de chaque voix MPE tous les 32 ticks.
+**Known limits.** (1) The physical wheel still acts on all notes; Y adds to it. (2) If Y
+still does nothing: either source 0 is not Wheel, or the model is not the slot's; also try
+editing a Wheel morph. (3) Amounts bounded to ±127 (full scale of a parameter, like
+Velocity). (4) Arpeggiator destinations ignored. (5) Cost: as stage 4, plus one
+recomputation of each MPE voice every 32 ticks.
 
-**3ᵉ version (2026-11-19) : la vraie cause.** Les CC n'arrivent pas à `midi_cc_in` par
-l'entrée de vtable remplacée aux paliers 4 et 5. Chaque abonné MIDI est un objet à
-plusieurs sous-objets (un par type de message : bend, pression, « autres CC »…), et le bus
-appelle l'entrée [1] de la vtable **du sous-objet**. Pour le bend, c'est le sous-objet
-principal, d'où le succès du palier 3. Pour les CC, c'est un relais partagé par les trois
-classes, `0xc01202a4 : sub r0, r0, #24 ; b midi_cc_in`, qui saute directement. **Le
-CC74 des canaux membres n'a donc jamais atteint notre code, ni au palier 4 ni au palier 5**
-(l'effet entendu au palier 4 venait sans doute de la vélocité du jeu). Correction : le saut
-du relais (0xc01202a8) vise `mpe_cc_in`. La pression a le même relais (`0xc0120390 → b
-midi_pressure_in`) : à brancher de la même façon pour Z. Le diagnostic garde la même
-correction (SHA-256 `e25ec6a2…5e08f877`).
+**3rd version (2026-11-19): the real cause.** CCs do not reach `midi_cc_in` through the
+vtable entry replaced in stages 4 and 5. Each MIDI subscriber is an object with several
+sub-objects (one per message type: bend, pressure, "other CCs"…), and the bus calls entry
+[1] of the **sub-object's** vtable. For bend, it is the main sub-object, hence the success
+of stage 3. For CCs, it is a relay shared by the three classes,
+`0xc01202a4 : sub r0, r0, #24 ; b midi_cc_in`, which jumps directly. **The CC74 of member
+channels therefore never reached our code, neither in stage 4 nor in stage 5** (the effect
+heard in stage 4 most likely came from the playing velocity). Fix: the relay's branch
+(0xc01202a8) targets `mpe_cc_in`. Pressure has the same relay (`0xc0120390 → b
+midi_pressure_in`): to be hooked the same way for Z. The diagnostic keeps the same fix
+(SHA-256 `e25ec6a2…5e08f877`).
 
-### Palier 5, version de diagnostic (`build/palier5diag_os.app`)
+### Stage 5, diagnostic version (`build/palier5diag_os.app`)
 
-La 2ᵉ version du palier 5 n'a pas d'effet non plus (essai du 2026-11-19). Pour savoir où le
-chemin s'arrête sans sortie de débogage, `palier5diag.c` (= `palier5.c` avec `DIAG`)
-**transpose toutes les notes d'un slot** selon ce que la lecture du modèle a trouvé pour
-ce slot. Hauteur normale jusqu'à la lecture (déclenchée par la 1ʳᵉ note MPE qui reçoit un
-Y), puis un **saut** :
+The 2nd version of stage 5 has no effect either (test of 2026-11-19). To find where the
+path stops without any debug output, `palier5diag.c` (= `palier5.c` with `DIAG`)
+**transposes all notes of a slot** according to what reading the model found for that
+slot. Normal pitch until the read (triggered by the 1st MPE note that receives a Y), then a
+**jump**:
 
-| Saut | Sens |
+| Jump | Meaning |
 |---|---|
-| aucun | lecture jamais faite : voix MPE non reconnue ou slot de la voix ≥ 4 |
-| +24 (deux octaves) | pas de modèle pour ce slot (`0xc04eb824[slot] + 0x1a4` nul) |
-| +12 (octave) | modèle lu, aucune quantité ni Wheel (source 0) ni Velocity (source 1) |
-| +7 (quinte) | quantités Velocity trouvées, mais pas Wheel : la source 0 n'est pas Wheel |
-| +5 (quarte) | quantités Wheel trouvées : si Y ne fait toujours rien, c'est l'application |
+| none | read never done: MPE voice not recognised, or the voice's slot ≥ 4 |
+| +24 (two octaves) | no model for this slot (`0xc04eb824[slot] + 0x1a4` is null) |
+| +12 (octave) | model read, no amount for Wheel (source 0) or Velocity (source 1) |
+| +7 (fifth) | Velocity amounts found, but not Wheel: source 0 is not Wheel |
+| +5 (fourth) | Wheel amounts found: if Y still does nothing, it is the application |
 
-Essai : programme avec un morph Wheel **et** un morph Velocity, canaux A–D sur Off, canal
-global = 1 ; tenir une note au clavier du Nord, toucher une note du LinnStrument en
-bougeant Y, écouter si la note tenue saute.
+Test: a program with a Wheel morph **and** a Velocity morph, channels A–D on Off, global
+channel = 1; hold a note on the Nord keyboard, touch a note on the LinnStrument while
+moving Y, listen whether the held note jumps.
 
-1ʳᵉ mouture (2026-11-19) : +5 permanent dès l'allumage, donc **inaudible sans référence**
-(toutes les notes décalées pareil) ; l'essai « aucune transposition » ne permettait pas de
-conclure. SHA-256 de la 2ᵉ mouture : `7d7ae111…74ced0cc`.
+1st build (2026-11-19): +5 permanently from power-on, hence **inaudible without a
+reference** (all notes shifted equally); the "no transposition" test could not conclude.
+SHA-256 of the 2nd build: `7d7ae111…74ced0cc`.
 
-### Palier 6 en détail (`tools/patch/palier6.c`, avec `palier2.c` et `palier3.c`)
+### Stage 6 in detail (`tools/patch/palier6.c`, with `palier2.c` and `palier3.c`)
 
-Remplace `palier5.c` (même structure) et ajoute :
+Replaces `palier5.c` (same structure) and adds:
 
-- **Z → Level.** La pression arrive par un relais de sous-objet, comme les CC :
-  `0xc0120390 : sub r0, #12 ; b midi_pressure_in`. On remplace le saut (`0xc0120394`) par
-  `b mpe_pressure_in`. Le message de pression porte la note en `+8`, ou −1 pour un Channel
-  Pressure (`c013c1c8`). Seul ce dernier est pris, et seulement sur les canaux 2 à 16 ; le
-  Poly AT reste au firmware. Le gain d'ampli de la voix est calculé dans
-  `voice_push_params` (`voix+0x334`, 8.23, 0x800000 = 1, depuis la courbe de vélocité
-  `voix+0x40`). Il est envoyé au SHARC par `amp_gain_write(voix+0x35c, gain)` (c0061a08 :
-  SHARC `n & 1`, DM `0x9245c + (n >> 1) × 0x40`). Dans `synth_tick`, on renvoie
-  `gain × Z`. Il est renvoyé quand Z bouge, après chaque recalcul de la voix par Y (qui a
-  renvoyé le gain d'origine), au début d'une note et tous les 32 ticks. Un canal sans
-  pression reçue garde le gain d'origine.
-- **Quantités Wheel sur 16 bits.** Le palier 5 les bornait à ±127. Le firmware passe les
-  quantités au moteur telles quelles (`prog_morph_amount_in` : `quantité << 16` →
-  `entrée.qté`, c0011fa8), donc une quantité plus grande était coupée et Y à 127
-  n'atteignait pas l'effet de la molette à fond (essai du 2026-11-19).
-  **[hyp. : à confirmer à l'essai]** Les bornes min / max des entrées sont fixes (plage du
-  paramètre, `c001de64…`) : elles n'y sont pour rien.
-- **Lissage.** Y et Z de chaque voix font 1/8 du chemin vers leur cible à chaque tick,
-  en pas de 1/256. Une voix qui commence prend sa cible tout de suite. Avec le palier 5,
-  les 128 pas du CC74 s'entendaient sur une grande quantité (essai du 2026-11-19).
-  **[Durée réelle inconnue : elle dépend de la période de `synth_tick`, non mesurée.]**
-- **Variables au début du tas.** Le code et les variables ne tenaient plus dans la zone
-  libre. `heap_bss` dans `build.py` range les variables mises à zéro en `0xc0931538`
-  (fin de la mise à zéro du démarrage = début du tas de `_sbrk`, c014af98, limite
-  0xc1000000). Il décale le début du tas (mot `0xc014afd0`) et la taille de la mise à
-  zéro d'autant (0x5b0 octets).
+- **Z → Level.** Pressure arrives through a sub-object relay, like CCs:
+  `0xc0120390 : sub r0, #12 ; b midi_pressure_in`. The branch (`0xc0120394`) is replaced
+  by `b mpe_pressure_in`. The pressure message carries the note at `+8`, or −1 for a
+  Channel Pressure (`c013c1c8`). Only the latter is taken, and only on channels 2 to 16;
+  Poly AT stays with the firmware. The voice's amp gain is computed in `voice_push_params`
+  (`voice+0x334`, 8.23, 0x800000 = 1, from the velocity curve `voice+0x40`). It is sent to
+  the SHARC by `amp_gain_write(voice+0x35c, gain)` (c0061a08: SHARC `n & 1`, DM
+  `0x9245c + (n >> 1) × 0x40`). In `synth_tick`, we send `gain × Z` again. It is resent
+  when Z moves, after each recomputation of the voice by Y (which sent the original gain
+  again), at the start of a note and every 32 ticks. A channel that never received
+  pressure keeps the original gain.
+- **16-bit Wheel amounts.** Stage 5 bounded them to ±127. The firmware passes amounts to
+  the engine as they are (`prog_morph_amount_in`: `amount << 16` → `entry.amount`,
+  c0011fa8), so a larger amount was clipped and Y at 127 did not reach the effect of the
+  wheel fully up (test of 2026-11-19). **[hyp.: to be confirmed by testing]** The min / max
+  bounds of the entries are fixed (parameter range, `c001de64…`): they play no part.
+- **Smoothing.** Y and Z of each voice move 1/8 of the way towards their target at each
+  tick, in steps of 1/256. A voice that starts takes its target immediately. With stage 5,
+  the 128 steps of CC74 were audible on a large amount (test of 2026-11-19).
+  **[Real duration unknown: it depends on the period of `synth_tick`, not measured.]**
+- **Variables at the start of the heap.** Code and variables no longer fitted in the free
+  area. `heap_bss` in `build.py` places the zeroed variables at `0xc0931538` (end of the
+  startup zeroing = start of the `_sbrk` heap, c014af98, limit 0xc1000000). It moves the
+  start of the heap (word `0xc014afd0`) and the size of the zeroing by the same amount
+  (0x5b0 bytes).
 
-**Limites connues.**
-- **Relâcher la pression avant le Note Off coupe la note.** Z ne suit la voix que
-  pendant la note jouée ; si le contrôleur envoie Z = 0 avant le Note Off, la relâche est
-  muette.
-- **Coût.** Pendant qu'Y glisse, la voix est recalculée à chaque tick (environ 90 ticks
-  pour un saut de 0 à 127).
-- **Voix volée.** Une voix volée sans repasser par un autre état glisse depuis la valeur
-  de la note d'avant (`shortcut:` dans le code).
+**Known limits.**
+- **Releasing the pressure before the Note Off cuts the note.** Z only follows the voice
+  while the note is played; if the controller sends Z = 0 before the Note Off, the release
+  is silent.
+- **Cost.** While Y glides, the voice is recomputed at every tick (about 90 ticks for a
+  jump from 0 to 127).
+- **Stolen voice.** A voice stolen without going through another state glides from the
+  value of the previous note (`shortcut:` in the code).
 
-### Palier 7 en détail (`tools/patch/palier7.c` = `palier6.c` avec `PER_PARAM`)
+### Stage 7 in detail (`tools/patch/palier7.c` = `palier6.c` with `PER_PARAM`)
 
-Au palier 6, chaque pas de Y relançait `voice_apply_velocity`, qui renvoie au SHARC tous
-les réglages de la voix (≈ 80). Un doigt sur le pad n'est jamais immobile, et le lissage
-ajoutait un recalcul à chaque tick : artefacts insupportables (essai du 2026-11-19). La
-molette, elle, passe par `slot_set_param` → `c000f6ec`, qui ne traite que le paramètre
-modifié. Pour chaque voix du slot, ce chemin appelle :
-- `voice_morph_eval(voix+0x48, n)` (c0033538, choisi par c0029bb0), qui donne la valeur
-  morphée du paramètre n pour cette voix ;
-- `voice_param_handler(&méthode, voix, n)` (c0029678, `switch` sur n), qui donne
-  `{objet, fonction}`, puis `fonction(objet, valeur)`.
+In stage 6, each step of Y re-ran `voice_apply_velocity`, which sends all the voice's
+settings (≈ 80) to the SHARC again. A finger on the pad is never still, and smoothing
+added a recomputation at every tick: unbearable artefacts (test of 2026-11-19). The wheel,
+on the other hand, goes through `slot_set_param` → `c000f6ec`, which only processes the
+changed parameter. For each voice of the slot, that path calls:
+- `voice_morph_eval(voice+0x48, n)` (c0033538, chosen by c0029bb0), which gives the morphed
+  value of parameter n for that voice;
+- `voice_param_handler(&method, voice, n)` (c0029678, `switch` on n), which gives
+  `{object, function}`, then `function(object, value)`.
 
-Le palier 7 fait pareil, voix par voix, **seulement pour les paramètres qui ont une
-quantité Wheel** : base + Y × quantité le temps de l'évaluation, puis application.
-L'entrée de morph i est le paramètre n° i du slot (`voice_morph_eval` indexe la table
-par n°). Un paramètre sans méthode par voix tombe sur la méthode par défaut (`bx lr`) :
-sans effet, comme pour la molette.
+Stage 7 does the same, voice by voice, **only for parameters that have a Wheel amount**:
+base + Y × amount during the evaluation, then application. Morph entry i is parameter
+no. i of the slot (`voice_morph_eval` indexes the table by number). A parameter without a
+per-voice method falls on the default method (`bx lr`): no effect, as with the wheel.
 
-### Palier 8 en détail (`tools/patch/palier8.c` = `palier6.c` avec `PER_PARAM` et `PALIER8`)
+### Stage 8 in detail (`tools/patch/palier8.c` = `palier6.c` with `PER_PARAM` and `PALIER8`)
 
-Essai du palier 7 : Z → Level décevant, et on n'entend pas bien si ça agit. Le palier 8
-corrige quatre causes probables :
-- **Poly AT accepté comme Z** sur les canaux membres : sur un canal membre il n'y a
-  qu'une note. Selon le support Roger Linn, le LinnStrument envoie la pression en
-  Poly AT par défaut ; le palier 7 l'ignorait.
-- **Courbe Z²** : le volume perçu est logarithmique. En linéaire, presque toute la course
-  sonnait fort ; Z² donne Z = 64 → 25 % (−12 dB), Z = 32 → 6 % (−24 dB).
-- **Z remplace la vélocité pour le volume** : gain = Z², 1 à Z = 127, au lieu de
-  `gain de vélocité × Z`. Avec le produit, une note frappée doucement ne pouvait pas
-  monter. Un canal qui n'a jamais reçu de pression garde le volume d'origine.
-- **Relâche préservée** : d'après un fil de forum (non officiel), le LinnStrument envoie
-  Z = 0 juste avant chaque Note On et Note Off. Un Z = 0 n'est appliqué au canal qu'après
-  `ZWAIT` = 3 ticks : si le Note Off arrive avant, la voix part en relâche avec son
-  niveau. Une note qui commence prend tout de suite le Z reçu, sans attente.
+Stage 7 test: Z → Level disappointing, and it is hard to hear whether it acts. Stage 8
+fixes four likely causes:
+- **Poly AT accepted as Z** on member channels: a member channel carries only one note.
+  According to Roger Linn's support, the LinnStrument sends pressure as Poly AT by
+  default; stage 7 ignored it.
+- **Z² curve**: perceived loudness is logarithmic. With a linear curve, almost the whole
+  travel sounded loud; Z² gives Z = 64 → 25 % (−12 dB), Z = 32 → 6 % (−24 dB).
+- **Z replaces velocity for the level**: gain = Z², 1 at Z = 127, instead of
+  `velocity gain × Z`. With the product, a softly struck note could not get louder. A
+  channel that never received pressure keeps the original level.
+- **Release preserved**: according to a forum thread (unofficial), the LinnStrument sends
+  Z = 0 just before each Note On and Note Off. A Z = 0 is only applied to the channel after
+  `ZWAIT` = 3 ticks: if the Note Off arrives first, the voice goes into release with its
+  level. A note that starts takes the received Z at once, without waiting.
 
-Prévu ensuite comme options du menu MIDI : courbes au choix pour Y et Z, et « remplace » ou
-« multiplie » la vélocité.
+Planned next as MIDI menu options: selectable curves for Y and Z, and "replace" or
+"multiply" velocity.
 
-### Palier 9 en détail (`tools/patch/palier9.c`, `palier3alias.c`, `alias.h`)
+### Stage 9 in detail (`tools/patch/palier9.c`, `palier3alias.c`, `alias.h`)
 
-Le firmware identifie une note par (slot, numéro) : le canal disparaît dès l'appel au slot
-(`docs/voices-midi.md`, « Identité d'une note »). Deux doigts sur la même hauteur faisaient
-une seule note, et `bind_voices` donnait aux deux voix le canal du plus récent (essai :
-« la plus récente vole le bend de l'autre »). Élargir l'identité des notes toucherait
-toutes les tables de 128 touches, l'arpégiateur, l'arbre des notes, la file et
-l'allocateur. Le palier 9 renumérote plutôt :
+The firmware identifies a note by (slot, number): the channel is gone as soon as the slot
+is called (`docs/voices-midi.md`, "Identity of a note"). Two fingers on the same pitch made
+a single note, and `bind_voices` gave both voices the channel of the most recent one (test:
+"the most recent steals the other's bend"). Widening the identity of notes would touch every
+128-key table, the arpeggiator, the note tree, the queue and the allocator. Stage 9
+renumbers instead:
 
-- **Note On** (`mpe9_target_note_on`, pointeur `0xc011ffac`) : sur un canal membre, si
-  la hauteur est déjà tenue sur un autre canal membre, la note entre sous le numéro libre
-  le plus proche (n + 1, n − 1, n + 2… jusqu'à ± 12 ; `alias_on`). Un Note On répété sur
-  le même canal garde son numéro.
-- **Note Off** (`mpe9_target_note_off`, pointeur `0xc011feb0` vers `target_note_off`,
-  c0111424) : éteint le numéro réellement joué et le libère (`alias_off`).
-- **Hauteur** : l'écart (note − numéro joué) passe par `g_off` à `mpe_queue_note_on`, qui
-  le range par (slot, note) ; `bind_voices` le donne à chaque voix, et
-  `mpe_voice_pitch_offset` l'ajoute en demi-tons. L'entrée clavier du morph (voix[0x13] =
-  hauteur) suit, l'affichage et le suivi de clavier de l'arpégiateur non.
-- **Une fois par cible.** Le répartiteur (`c011fdcc` pour le Note Off, via `c011f62c`)
-  appelle `target_note_on` / `target_note_off` pour chaque cible. La 1ʳᵉ version libérait
-  l'alias au premier Note Off : les cibles suivantes éteignaient le numéro d'origine, et
-  les notes renumérotées restaient bloquées (essai du 2026-11-19). L'alias reste maintenant
-  connu jusqu'au Note On suivant de (canal, note), et il est réutilisé seulement s'il est
-  libre.
-- `test_alias.c` vérifie l'attribution sur le Mac, appels répétés compris :
+- **Note On** (`mpe9_target_note_on`, pointer `0xc011ffac`): on a member channel, if the
+  pitch is already held on another member channel, the note enters under the nearest free
+  number (n + 1, n − 1, n + 2… up to ± 12; `alias_on`). A repeated Note On on the same
+  channel keeps its number.
+- **Note Off** (`mpe9_target_note_off`, pointer `0xc011feb0` to `target_note_off`,
+  c0111424): switches off the number actually played and frees it (`alias_off`).
+- **Pitch**: the offset (note − played number) goes through `g_off` to `mpe_queue_note_on`,
+  which stores it per (slot, note); `bind_voices` gives it to each voice, and
+  `mpe_voice_pitch_offset` adds it in semitones. The keyboard input of the morph
+  (voice[0x13] = pitch) follows; the display and the arpeggiator's key tracking do not.
+- **Once per target.** The dispatcher (`c011fdcc` for Note Off, via `c011f62c`) calls
+  `target_note_on` / `target_note_off` for each target. The 1st version freed the alias on
+  the first Note Off: the following targets switched off the original number, and the
+  renumbered notes stayed stuck (test of 2026-11-19). The alias now stays known until the
+  next Note On of (channel, note), and it is reused only if it is free.
+- `test_alias.c` checks the assignment on the Mac, repeated calls included:
   `cc -o /tmp/t tools/patch/test_alias.c && /tmp/t`.
 
-**Limites.**
-- Seuls les canaux membres sont suivis : une note du canal 1 ou du clavier local sur la
-  même hauteur reste confondue.
-- Si les 25 numéros autour de la note sont pris, la note est confondue comme avant.
-- Ce qui dépend du numéro de note et non de la hauteur de la voix sera décalé d'un ou deux
-  demi-tons pour la note renumérotée **[hyp. : rien d'audible]**.
+**Limits.**
+- Only member channels are tracked: a note on channel 1 or from the local keyboard on the
+  same pitch is still merged.
+- If the 25 numbers around the note are taken, the note is merged as before.
+- Whatever depends on the note number rather than on the voice's pitch will be off by one
+  or two semitones for the renumbered note **[hyp.: nothing audible]**.
 
-### Palier 10 en détail (`tools/patch/palier10.c`, qui inclut les paliers 2, 3 et 9)
+### Stage 10 in detail (`tools/patch/palier10.c`, which includes stages 2, 3 and 9)
 
-Le MPE ne s'active plus par « canal global = 1 » mais par quatre entrées ajoutées **à la
-fin du menu MIDI** (après 8 ; molette pour y aller, Shift + molette pour changer) :
+MPE is no longer enabled by "global channel = 1" but by four entries added **at the end of
+the MIDI menu** (after 8; wheel to get there, Shift + wheel to change):
 
-| Lettre | Option (bits du réglage 0x21) | Valeurs (défaut en premier) | Effet |
+| Letter | Option (bits of setting 0x21) | Values (default first) | Effect |
 |---|---|---|---|
-| `P` | MPE (bit 0) | `Of`, `On` | zone basse : canaux 2 à 16 en membres, sur le slot en Keyboard Focus |
-| `r` | plage du bend (bits 1–2) | `48`, `24`, `12`, ` 2` | bend des canaux membres, en demi-tons |
-| `y` | Y (bit 3) | `On`, `Of` | Y (CC74) → morph Wheel par note ; `Of` : CC74 des membres ignoré |
-| `L` | Z (bit 4) | `On`, `Of` | Z (pression) → Level par note ; `Of` : pression des membres ignorée |
+| `P` | MPE (bit 0) | `Of`, `On` | lower zone: channels 2 to 16 as members, on the slot in Keyboard Focus |
+| `r` | bend range (bits 1–2) | `48`, `24`, `12`, ` 2` | bend of member channels, in semitones |
+| `y` | Y (bit 3) | `On`, `Of` | Y (CC74) → per-note Wheel morph; `Of`: CC74 of members ignored |
+| `L` | Z (bit 4) | `On`, `Of` | Z (pressure) → per-note Level; `Of`: pressure of members ignored |
 
-**1ʳᵉ version (2026-11-20) : le clavier ne redémarrait plus.** Elle ajoutait 4 réglages
-(n° 0x22 à 0x25) à la table des réglages globaux. Cause, trouvée à la lecture :
-l'écouteur de ces réglages (objet de `fn_c00ee098`, constructeur de base `fn_c00e3f70`)
-range dans **son propre objet** des tableaux de 34 cases indexés par n° (un octet par n°
-en `+0x104`, des paires de mots en `+0x58`, et 0x22 en dur dans `fn_c00e3f70` et
-`fn_c00e2ab0`). Nos n° écrivaient au-delà, sur l'objet minuterie en `+0xe0` et son
-pointeur de rappel en `+0xec`. **Leçon : le nombre de réglages globaux est figé à 34.**
+**1st version (2026-11-20): the keyboard no longer booted.** It added 4 settings
+(no. 0x22 to 0x25) to the table of global settings. Cause, found by reading: the listener
+of these settings (object of `fn_c00ee098`, base constructor `fn_c00e3f70`) stores in
+**its own object** arrays of 34 cells indexed by number (one byte per number at `+0x104`,
+pairs of words at `+0x58`, and 0x22 hard-coded in `fn_c00e3f70` and `fn_c00e2ab0`). Our
+numbers wrote beyond them, over the timer object at `+0xe0` and its callback pointer at
+`+0xec`. **Lesson: the number of global settings is fixed at 34.**
 
-**2ᵉ version.** Les quatre options sont des champs de bits du réglage **0x21** : il est
-sauvegardé sur 31 bits, mais son maximum vaut 0 dans l'OS 1.32 (toujours 0, aucun lecteur
-ni écrivain par n° dans le CODE). `build.py` passe ce maximum à 0x1f (`0xc03c02a4`). Ni la
-table ni l'enregistrement sauvegardé ne changent de forme ; l'OS officiel lit une valeur
-> 0 hors bornes et la ramène à 0 (les options reviennent alors aux défauts).
+**2nd version.** The four options are bit fields of setting **0x21**: it is saved on 31
+bits, but its maximum is 0 in OS 1.32 (always 0, no reader or writer by number in the
+CODE). `build.py` raises this maximum to 0x1f (`0xc03c02a4`). Neither the table nor the
+saved record change shape; the official OS reads a value > 0 as out of range and brings it
+back to 0 (the options then return to their defaults).
 
-Fonctionnement :
-- **Entrées** : `mpe10_menus_done` remplace le dernier appel de `menus_build`
-  (`0xc00fc0e8`). Chaque entrée est construite par le constructeur de PB Mode
-  (`fn_c01001f8`, objet agrandi à 0x64 octets, n° de l'option en `+0x60`), puis reçoit nos
-  copies des vtables de PB Mode : principale (molette `[5]`, formatage `[12]`, affichage
-  `[13]`) et sous-objet `+0xc` (relais de la molette). La molette ne change que son
-  champ : `global_step(app, 0x21, …, écart << décalage)`. `build.py` vérifie que les mots
-  recopiés et le descripteur de 0x21 sont ceux de l'image d'origine.
-- **Prise en compte** : après `global_step`, la molette pose `app[0x1fe]` et relance
-  `app_routing_update`, comme le fait le firmware pour le canal global ; `mpe_zone_setup`
-  relit les options (la nouvelle valeur lui est passée par `g_force`). Au démarrage, la
-  création des zones lit le réglage chargé. `mpe10_on_global` (pointeur `0xc03bf200`) fait
-  la même chose si l'application est prévenue du n° 0x21.
-  Le canal global n'est plus ajouté une 2ᵉ fois comme membre.
-- **Place** : le trou après le CODE ne suffit plus (0xaa8 octets sur 0xad0). Le reste
-  (0x2d0 octets) va dans du **code mort** du firmware, `0xc002d1f8`–`0xc002daa4`
-  (`DEAD` dans `build.py`), trouvé par `tools/find_dead_code.py` : aucun mot d'aucune
-  image ne pointe dedans, aucun branchement, chargement relatif au PC ni `adr` venu
-  d'ailleurs n'y arrive, et elle suit une fin de fonction. `build.py` répartit lui-même
-  les fonctions (le trou d'abord, puis les zones mortes), car
-  `ld --enable-non-contiguous-regions` plante ; les variables restent dans le trou ou le tas.
-- Contrôles : le palier 9 reconstruit est identique octet pour octet ; l'image du palier 10
-  ne diffère de l'originale que par les mots attendus, la zone morte utilisée et le code
-  ajouté.
+How it works:
+- **Entries**: `mpe10_menus_done` replaces the last call of `menus_build` (`0xc00fc0e8`).
+  Each entry is built by the PB Mode constructor (`fn_c01001f8`, object enlarged to 0x64
+  bytes, option number at `+0x60`), then receives our copies of the PB Mode vtables: main
+  (wheel `[5]`, formatting `[12]`, display `[13]`) and sub-object `+0xc` (wheel relay). The
+  wheel only changes its own field: `global_step(app, 0x21, …, delta << shift)`. `build.py`
+  checks that the copied words and the descriptor of 0x21 are those of the original image.
+- **Taking effect**: after `global_step`, the wheel sets `app[0x1fe]` and re-runs
+  `app_routing_update`, as the firmware does for the global channel; `mpe_zone_setup`
+  re-reads the options (the new value is passed to it through `g_force`). At boot, the
+  zone creation reads the loaded setting. `mpe10_on_global` (pointer `0xc03bf200`) does
+  the same if the application is notified of no. 0x21. The global channel is no longer
+  added a 2nd time as a member.
+- **Space**: the hole after the CODE is no longer enough (0xaa8 bytes of 0xad0). The rest
+  (0x2d0 bytes) goes into **dead code** of the firmware, `0xc002d1f8`–`0xc002daa4` (`DEAD`
+  in `build.py`), found by `tools/find_dead_code.py`: no word of any image points into it,
+  no branch, PC-relative load or `adr` from elsewhere reaches it, and it follows the end of
+  a function. `build.py` distributes the functions itself (the hole first, then the dead
+  areas), because `ld --enable-non-contiguous-regions` crashes; variables stay in the hole
+  or the heap.
+- Checks: the rebuilt stage 9 is identical byte for byte; the stage 10 image differs from
+  the original only by the expected words, the dead area used and the added code.
 
-**À essayer** :
-1. Après la mise à jour : le clavier redémarre ; menu MIDI, molette jusqu'après 8 →
+**To try**:
+1. After the update: the keyboard reboots; MIDI menu, wheel past 8 →
    `P.Of`, `r.48`, `y.On`, `L.On`.
-2. `P` sur `On` : le MPE marche comme au palier 9, **quel que soit le canal global**
-   (garder A–D sur Off).
-3. `r` sur `12` puis ` 2` : plage du bend des canaux membres.
-4. `y` puis `L` sur `Of` : Y puis Z sans effet.
-5. Éteindre, rallumer : les quatre réglages sont gardés, et le MPE marche dès l'allumage.
+2. `P` to `On`: MPE works as in stage 9, **whatever the global channel** (keep A–D on Off).
+3. `r` to `12` then ` 2`: bend range of member channels.
+4. `y` then `L` to `Of`: Y then Z have no effect.
+5. Switch off, switch on: the four settings are kept, and MPE works from power-on.
 
-**Essai de la 2ᵉ version (2026-11-20)** : le clavier redémarre, les entrées s'affichent.
-`P.On` ne changeait rien jusqu'au redémarrage suivant ; après, les notes MIDI des canaux
-membres jouent. Le réglage est donc bien sauvegardé, mais l'application n'est pas prévenue
-d'un changement du n° 0x21 (elle ne reçoit sans doute que les n° auxquels elle est
-abonnée **[hyp.]**) : `mpe10_on_global` n'était pas appelé. **3ᵉ version** : la molette
-relance elle-même la création des zones (ci-dessus). Avec `P.Of`, il est normal que les
-canaux 2 à 16 ne jouent pas (seul le canal global est écouté).
+**Test of the 2nd version (2026-11-20)**: the keyboard reboots, the entries are shown.
+`P.On` changed nothing until the next restart; afterwards, MIDI notes on member channels
+play. The setting is therefore saved, but the application is not notified of a change of
+no. 0x21 (it probably only receives the numbers it is subscribed to **[hyp.]**):
+`mpe10_on_global` was not called. **3rd version**: the wheel itself re-runs the zone
+creation (above). With `P.Of`, it is normal that channels 2 to 16 do not play (only the
+global channel is listened to).
 
-**Essai de la 3ᵉ version (2026-11-20) : même défaut** (`P.On` n'agit qu'après un
-redémarrage). Relire la relance (zones vidées puis recréées par `fn_c00df898`, cibles
-réactivées par le Keyboard Focus dans `midi_routing_setup`, `target_note_on` sans masque)
-ne montre aucune différence entre le démarrage et une relance. D'où une version de
-**diagnostic**, `build/palier10diag_os.app` (`palier10diag.c`, `4f93e105…ba80d8e77`) : au
-menu MIDI, `r` affiche le **nombre de zones** de la cible du slot A et `y` affiche
-**créations des zones (mod 16) | g_mpe_on**, en hexadécimal. Attendu : `r.02` à `r.04`
-avec `P.Of`, `r.20` environ avec `P.On` (2 zones d'origine + 30 nôtres) ; le 1ᵉʳ chiffre
-de `y` augmente à chaque relance, le 2ᵉ vaut 1 avec `P.On`.
+**Test of the 3rd version (2026-11-20): same fault** (`P.On` only acts after a restart).
+Re-reading the re-run (zones emptied then recreated by `fn_c00df898`, targets re-enabled
+by the Keyboard Focus in `midi_routing_setup`, `target_note_on` without a mask) shows no
+difference between boot and a re-run. Hence a **diagnostic** version,
+`build/palier10diag_os.app` (`palier10diag.c`, `4f93e105…ba80d8e77`): in the MIDI menu,
+`r` shows the **number of zones** of slot A's target and `y` shows
+**zone creations (mod 16) | g_mpe_on**, in hexadecimal. Expected: `r.02` to `r.04` with
+`P.Of`, about `r.20` with `P.On` (2 original zones + 30 of ours); the 1st digit of `y`
+increases at each re-run, the 2nd is 1 with `P.On`.
 
-**Diagnostic relevé (2026-11-20)** : après redémarrage avec `P.Of` : `r.02`, `y.60` ;
-`P` passé sur `On` sans redémarrer : `r.20`, `y.71`. **La relance marche** : les 30 zones
-des canaux membres sont créées tout de suite et le MPE est actif. Le silence vient sans
-doute du programme d'essai : il a un morph sur la molette et n'est audible que molette
-levée ; Y par note s'ajoute à ce morph, la molette du panneau agit toujours sur le slot
-**[hyp., à confirmer avec un son audible molette en bas]**.
+**Diagnostic reading (2026-11-20)**: after a restart with `P.Of`: `r.02`, `y.60`; `P`
+switched to `On` without restarting: `r.20`, `y.71`. **The re-run works**: the 30 zones
+of the member channels are created at once and MPE is active. The silence most likely came
+from the test program: it has a morph on the wheel and is only audible with the wheel up;
+per-note Y adds to that morph, and the panel wheel still acts on the slot **[hyp., to be
+confirmed with a sound audible with the wheel down]**.
 
-**Essai final (2026-11-20) : OK.** Avec la version normale, `y` et `L` sur `On`, le
-programme joue depuis le LinnStrument comme au palier 9, et `P.On` agit sans
-redémarrage. Le défaut venait du programme d'essai et de `y` resté sur `Of`.
+**Final test (2026-11-20): OK.** With the normal version, `y` and `L` on `On`, the program
+plays from the LinnStrument as in stage 9, and `P.On` acts without a restart. The fault
+came from the test program and from `y` left on `Of`.
 
-**Si une version ne redémarre pas** : essayer `build/palier9dead_os.app`. C'est
-le palier 9 avec ses deux enveloppes de notes (Note On / Note Off des canaux membres)
-déplacées dans la même zone morte. S'il démarre et joue comme le palier 9, la zone morte
-est hors de cause ; sinon, c'est elle.
+**If a version does not boot**: try `build/palier9dead_os.app`. It is stage 9 with its two
+note wrappers (Note On / Note Off of member channels) moved into the same dead area. If it
+boots and plays like stage 9, the dead area is not the cause; otherwise, it is.
 
-### Palier 11 en détail (`tools/patch/palier11.c`, qui inclut `palier10.c`)
+### Stage 11 in detail (`tools/patch/palier11.c`, which includes `palier10.c`)
 
-Les options MPE encore manquantes, toutes dans les bits du réglage 0x21 (maximum passé à
-`0x1fff` par `build.py`). Menu MIDI, après 8 (molette pour aller à l'entrée, Shift +
-molette pour changer la valeur). L'afficheur a 3 caractères : lettre de l'entrée, point,
-valeur sur 2 caractères. Le défaut est en premier.
+The MPE options still missing, all in the bits of setting 0x21 (maximum raised to
+`0x1fff` by `build.py`). MIDI menu, after 8 (wheel to go to the entry, Shift + wheel to
+change the value). The display has 3 characters: entry letter, dot, value on 2 characters.
+The default comes first.
 
-| Afficheur | Réglage | Valeurs | Bits de 0x21 |
+| Display | Setting | Values | Bits of 0x21 |
 |---|---|---|---|
-| `E.Of` | **MPE** | `Of` arrêt · `On` marche | 0 |
-| `r.48` | **plage du bend** des canaux membres | `48` · `24` · `12` · ` 2` demi-tons | 1–2 |
-| `y.nO` | **Y (CC74) va vers…** | `nO` morph molette (Wheel) · `vE` morph vélocité · `Fr` Filter Freq directement · `Of` rien | 3–4 |
-| `C.Li` | **courbe de Y** | `Li` linéaire · `CA` carrée (lente en bas) · `dO` douce (rapide en bas) | 8–9 |
-| `P.LE` | **Z (pression) va vers…** | `LE` volume (de 0 au volume normal) · `nO` molette · `vE` vélocité · `Fr` Filter Freq · `Of` rien · `vL` vélocité du volume (Z remplace la vélocité, ≈ 6 dB) | 5–7 |
-| `H.CA` | **courbe de Z** | `CA` carrée · `Li` linéaire · `dO` douce | 10–11 |
-| `v.Of` | **Z × vélocité** | `Of` Z seul · `On` Z multiplié par la vélocité de la note | 12 |
+| `E.Of` | **MPE** | `Of` off · `On` on | 0 |
+| `r.48` | **bend range** of member channels | `48` · `24` · `12` · ` 2` semitones | 1–2 |
+| `y.nO` | **Y (CC74) goes to…** | `nO` Wheel morph · `vE` Velocity morph · `Fr` Filter Freq directly · `Of` nothing | 3–4 |
+| `C.Li` | **Y curve** | `Li` linear · `CA` square (slow at the bottom) · `dO` soft (fast at the bottom) | 8–9 |
+| `P.LE` | **Z (pressure) goes to…** | `LE` level (from 0 to the normal level) · `nO` wheel · `vE` velocity · `Fr` Filter Freq · `Of` nothing · `vL` level velocity (Z replaces velocity, ≈ 6 dB) | 5–7 |
+| `H.CA` | **Z curve** | `CA` square · `Li` linear · `dO` soft | 10–11 |
+| `v.Of` | **Z × velocity** | `Of` Z alone · `On` Z multiplied by the note's velocity | 12 |
 
-Lettres : `E` pour le MPE et `P` (pression) pour Z, parce qu'un Z s'afficherait comme un
-2, déjà pris par Local. `nO` = moLette (le n tient lieu de M). `vE` se lit « UE » à
-l'afficheur. Une valeur sauvegardée hors plage (ex. 5 à 7 pour `P`) se lit comme le défaut.
+Letters: `E` for MPE and `P` (pressure) for Z, because a Z would show as a 2, already
+used by Local. `nO` = wheel (French "moLette"; the n stands in for an M). `vE` reads "UE"
+on the display. A saved value out of range (e.g. 5 to 7 for `P`) reads as the default.
 
-**Compatibilité avec le palier 10** : les bits 0 à 2 (MPE, bend) ne bougent pas. Les bits 3
-et 4 changent de sens : un `y.Of` du palier 10 devient `y.vE`, un `L.Of` devient `y.Fr`.
+**Compatibility with stage 10**: bits 0 to 2 (MPE, bend) do not move. Bits 3 and 4 change
+meaning: a stage 10 `y.Of` becomes `y.vE`, an `L.Of` becomes `y.Fr`.
 
-Fonctionnement :
-- **Toutes les destinations par paramètre** (chemin du palier 7) : pour chaque entrée de
-  morph de la voix, un écart est ajouté à la base le temps de `voice_morph_eval`, puis
-  appliqué par `voice_param_handler`. Y et Z sont appliqués **ensemble** : sinon la 2ᵉ
-  évaluation effacerait la 1ʳᵉ quand les deux visent le même paramètre.
-  - **nO (Wheel)** : écart = valeur × quantité Wheel du programme (comme au palier 7).
-  - **vE (Velocity)** : `voice_morph_eval` ajoute `qté × (vélocité + 1) / 128`
-    (`o[2]` = `voix[0x14]`, vérifié au pseudo-C) ; l'écart remplace (vélocité + 1) / 128
-    par la valeur. Seuls les paramètres qui ont une quantité Velocity bougent.
-  - **Fr (Filter Freq direct)** : paramètre n° **0x15**. Écart = valeur × (max − min) de
-    l'entrée : à 127, le filtre est ouvert à fond depuis le réglage du bouton. **Essayé
-    (Z → Fr, 2026-11-20) : agit bien sur la coupure.**
-  - **Volume** : la méthode du volume par voix (paramètre n° 0, `c0036dbc`) **ignore la
-    valeur passée**. Elle lit un réglage du slot S (`[voix+0x414] + 8`,
-    `voix+0x414 = moteur+0x6ac`, posé par `voice_bind_engine`) et la **vélocité en
-    `voix+0x42c`**, recopiée de `voix+0x3c` par `voice_push_params`. Indice
-    = S × vélocité / 127 − S / 2 (S / 2 borné à 32), table ≈ 0,19 dB par pas
-    (`0xc01c8b54` / `0xc01c8954`), gain borné à 0x800000 ; rangé en `voix+0x3b0`
-    (= `[voix+0x3dc] + 0x14`, `voix+0x3dc = voix+0x39c`), envoyé par
-    **`c005ee84(voix[0x3d8], gain)`** → SHARC DM `0x9248a + (n >> 1) × 0x40`
-    (`c005eec8`, appelé par `voice_push_params`, écrit la même adresse).
-  - **`LE`, volume × Z** (4ᵉ version) : `gain de voix+0x3b0 × courbe(Z)` est renvoyé par
-    `c005ee84`, `voix+0x3b0` restant intact. Z = 0 → silence, Z = 127 → volume normal
-    (vélocité comprise). Renvoyé quand Z bouge, au début de la note et tous les 32 ticks : si
-    le firmware recalcule le volume (bouton tourné), le volume normal peut revenir jusqu'à
-    32 ticks.
-  - **`vL`, Z remplace la vélocité** (3ᵉ version, gardée) : Z sur 0…127 dans `voix+0x42c`,
-    puis la méthode. Essai du 2026-11-20 : marche, mais ≈ 6 dB d'ampleur au plus (la formule
-    ci-dessus). `vL` est après `Of` pour que `Of` garde sa valeur sauvegardée.
-  - Versions sans effet : gain des paliers 6 à 10 (`amp_gain_write`, `voix+0x334`, DM
-    `0x9245c` : une autre adresse, dont le rôle n'est pas connu), puis écart sur la base du
-    paramètre n° 0 (2ᵉ version), puisque la méthode ignore la valeur.
-- **Numéros des paramètres** : table des noms `0xc01c9be8…`, entrées de 16 octets
-  `{n°, groupe, nom, unité}` (0 = Output Level, 0x15 = Filter Freq, 0x16 = Resonance).
-  Disposition confirmée par ce qu'on sait déjà : 0x21 / 0x22 = Pitch Bend Range,
-  0x23 = « Pitch Bend xxx » (la valeur du bend), 0x24 = Voice Mode, 0x25 = Legato, sans
-  méthode par voix de 0x21 à 0x25. Une 1ʳᵉ lecture `{groupe, nom, unité, n°}` donnait
-  0x16 (Resonance) pour Filter Freq : corrigé avant l'essai.
-- **1ʳᵉ version : Level = gain d'ampli des paliers 6 à 10** (`amp_gain_write`), essayé le
-  2026-11-20 : **aucun effet sur le volume** (et déjà « décevant » au palier 8). Remplacé
-  par Output Level. Cause non cherchée **[hyp. : gain réécrit par le firmware, ou valeur
-  ignorée par le SHARC]**.
-- **v.On** : la valeur de Z est multipliée par (vélocité + 1) / 128 avant l'écart, pour
-  toutes les destinations.
-- **Courbes** (sur la valeur lissée, 0…1) : linéaire ; carrée (x²) ; douce
-  = 1 − (1 − x)².
-- **Canaux A–D** : `app_routing_update` (c00e04cc) recopie les réglages des canaux
-  (`app+0x1d8…0x1e4`) dans les canaux effectifs `app+0x1ec…0x1f8` (16 = Off, un canal égal
-  au global passe à Off), puis appelle la création des zones (notre `mpe_zone_setup`) et
-  pose les masques des contrôleurs d'après ces mêmes champs. En mode MPE, un canal A–D
-  situé sur un canal membre (MIDI 2 à 16) est mis à Off **dans les champs effectifs
-  seulement**, avant la création des zones : ni zone ni masque pour lui. Les réglages et le
-  menu ne changent pas ; un retour à `E.Of` (ou un changement de A–D, qui relance aussi
-  `app_routing_update` par `fn_c00e0960`) les rétablit. Un canal A–D sur MIDI 1 reste.
-  Les canaux A–D sont rangés hors de la table globale : modèle par slot `app[0x53 + i]`,
-  réglage n° 1 (`fn_c00e2740` / `fn_c00e2894`, appelés par l'entrée de menu
-  `fn_c0101da8`).
-- Place : 0xab8 octets dans le trou (sur 0xad0) + 0x764 dans la 1ʳᵉ zone morte (sur
-  0x8ac). Le trou est plein : le prochain ajout ira dans les zones mortes.
-- Contrôles : paliers 9 et 10 reconstruits identiques octet pour octet ; l'image du
-  palier 11 ne diffère de l'originale que par les 20 mots du palier 10 (dont le maximum de
-  0x21), la zone morte et le code ajouté ; `.cab` réextrait, les 5 autres sections
-  identiques à l'officiel ; aucun appel à libgcc dans le code produit.
+How it works:
+- **All destinations per parameter** (stage 7 path): for each morph entry of the voice, an
+  offset is added to the base during `voice_morph_eval`, then applied by
+  `voice_param_handler`. Y and Z are applied **together**: otherwise the 2nd evaluation
+  would erase the 1st when both target the same parameter.
+  - **nO (Wheel)**: offset = value × the program's Wheel amount (as in stage 7).
+  - **vE (Velocity)**: `voice_morph_eval` adds `amount × (velocity + 1) / 128`
+    (`o[2]` = `voice[0x14]`, checked in the pseudo-C); the offset replaces
+    (velocity + 1) / 128 by the value. Only parameters that have a Velocity amount move.
+  - **Fr (Filter Freq direct)**: parameter no. **0x15**. Offset = value × (max − min) of
+    the entry: at 127, the filter is fully open from the knob's setting. **Tried
+    (Z → Fr, 2026-11-20): acts on the cutoff as expected.**
+  - **Level**: the per-voice level method (parameter no. 0, `c0036dbc`) **ignores the
+    value passed**. It reads a slot setting S (`[voice+0x414] + 8`,
+    `voice+0x414 = engine+0x6ac`, set by `voice_bind_engine`) and the **velocity at
+    `voice+0x42c`**, copied from `voice+0x3c` by `voice_push_params`. Index
+    = S × velocity / 127 − S / 2 (S / 2 capped at 32), table ≈ 0.19 dB per step
+    (`0xc01c8b54` / `0xc01c8954`), gain capped at 0x800000; stored at `voice+0x3b0`
+    (= `[voice+0x3dc] + 0x14`, `voice+0x3dc = voice+0x39c`), sent by
+    **`c005ee84(voice[0x3d8], gain)`** → SHARC DM `0x9248a + (n >> 1) × 0x40`
+    (`c005eec8`, called by `voice_push_params`, writes the same address).
+  - **`LE`, level × Z** (4th version): `gain of voice+0x3b0 × curve(Z)` is sent again by
+    `c005ee84`, `voice+0x3b0` left intact. Z = 0 → silence, Z = 127 → normal level
+    (velocity included). Resent when Z moves, at the start of the note and every 32 ticks:
+    if the firmware recomputes the level (knob turned), the normal level may come back for
+    up to 32 ticks.
+  - **`vL`, Z replaces velocity** (3rd version, kept): Z on 0…127 into `voice+0x42c`, then
+    the method. Test of 2026-11-20: works, but ≈ 6 dB of range at most (the formula
+    above). `vL` comes after `Of` so that `Of` keeps its saved value.
+  - Versions without effect: the gain of stages 6 to 10 (`amp_gain_write`, `voice+0x334`,
+    DM `0x9245c`: another address, whose role is unknown), then an offset on the base of
+    parameter no. 0 (2nd version), since the method ignores the value.
+- **Parameter numbers**: name table `0xc01c9be8…`, 16-byte entries
+  `{no., group, name, unit}` (0 = Output Level, 0x15 = Filter Freq, 0x16 = Resonance).
+  Layout confirmed by what was already known: 0x21 / 0x22 = Pitch Bend Range,
+  0x23 = "Pitch Bend xxx" (the bend value), 0x24 = Voice Mode, 0x25 = Legato, with no
+  per-voice method from 0x21 to 0x25. A 1st reading as `{group, name, unit, no.}` gave
+  0x16 (Resonance) for Filter Freq: fixed before the test.
+- **1st version: Level = amp gain of stages 6 to 10** (`amp_gain_write`), tried on
+  2026-11-20: **no effect on the level** (and already "disappointing" in stage 8). Replaced
+  by Output Level. Cause not investigated **[hyp.: gain rewritten by the firmware, or value
+  ignored by the SHARC]**.
+- **v.On**: the value of Z is multiplied by (velocity + 1) / 128 before the offset, for all
+  destinations.
+- **Curves** (on the smoothed value, 0…1): linear; square (x²); soft = 1 − (1 − x)².
+- **Channels A–D**: `app_routing_update` (c00e04cc) copies the channel settings
+  (`app+0x1d8…0x1e4`) into the effective channels `app+0x1ec…0x1f8` (16 = Off, a channel
+  equal to the global one becomes Off), then calls the zone creation (our
+  `mpe_zone_setup`) and sets the controller masks from those same fields. In MPE mode, an
+  A–D channel lying on a member channel (MIDI 2 to 16) is set to Off **in the effective
+  fields only**, before the zone creation: no zone and no mask for it. The settings and the
+  menu do not change; going back to `E.Of` (or changing A–D, which also re-runs
+  `app_routing_update` through `fn_c00e0960`) restores them. An A–D channel on MIDI 1
+  stays. Channels A–D are stored outside the global table: per-slot model `app[0x53 + i]`,
+  setting no. 1 (`fn_c00e2740` / `fn_c00e2894`, called by the menu entry `fn_c0101da8`).
+- Space: 0xab8 bytes in the hole (of 0xad0) + 0x764 in the 1st dead area (of 0x8ac). The
+  hole is full: the next addition will go into the dead areas.
+- Checks: stages 9 and 10 rebuilt identical byte for byte; the stage 11 image differs from
+  the original only by the 20 words of stage 10 (including the maximum of 0x21), the dead
+  area and the added code; `.cab` re-extracted, the 5 other sections identical to the
+  official ones; no call to libgcc in the produced code.
 
-**Diagnostic du Level** (`build/palier11diag_os.app`, `palier11diag.c`, `DIAG11`) : le
-palier 11 (2ᵉ version) qui affiche au menu, pour la **dernière note démarrée sur un canal
-membre**, en hexadécimal (`b`, `d` en minuscules) :
+**Level diagnostic** (`build/palier11diag_os.app`, `palier11diag.c`, `DIAG11`): stage 11
+(2nd version) showing in the menu, for the **last note started on a member channel**, in
+hexadecimal (`b`, `d` in lower case):
 
-| Entrée | Affiche |
+| Entry | Shows |
 |---|---|
-| `E` | MPE, comme d'habitude (à laisser sur `On`) |
-| `r` | vélocité de la note (`voix[0x14]`, `7F` = 127) |
-| `y` `C` `P` `H` | les 4 octets de `voix+0x3c`, du plus fort au plus faible : `y.00 C.40 P.00 H.00` = `0x00400000` |
-| `v` | `voix+0x3b0 >> 16` : le gain calculé par `c0036dbc` (`80` = gain 1) |
+| `E` | MPE, as usual (leave on `On`) |
+| `r` | note velocity (`voice[0x14]`, `7F` = 127) |
+| `y` `C` `P` `H` | the 4 bytes of `voice+0x3c`, most to least significant: `y.00 C.40 P.00 H.00` = `0x00400000` |
+| `v` | `voice+0x3b0 >> 16`: the gain computed by `c0036dbc` (`80` = gain 1) |
 
-**Relevé du 2026-11-20** (LinnStrument) : vélocité `07` → `voix+0x3c = 0x00000007`,
-`v.11` ; vélocité `3A` → `0x0000003A`, `v.1d`. **`voix+0x3c` est la vélocité (0…127) et le
-gain en dépend** : d'où la 3ᵉ version de LE.
+**Reading of 2026-11-20** (LinnStrument): velocity `07` → `voice+0x3c = 0x00000007`,
+`v.11`; velocity `3A` → `0x0000003A`, `v.1d`. **`voice+0x3c` is the velocity (0…127) and
+the gain depends on it**: hence the 3rd version of LE.
 
-Les entrées `r` à `v` gardent leur molette : ne pas les tourner pendant le relevé. Relevé
-voulu : jouer une note **douce** sur le LinnStrument, la lâcher, noter `r y C P H v` ; puis
-une note **forte** ; puis une forte avec Output Level du panneau au milieu. Lecture :
-- `voix+0x3c` varie avec la vélocité → c'est le facteur de vélocité du volume ; Z le
-  remplacera (ou le multipliera) dans `voix+0x42c`, puis on rappellera `c0036dbc` ;
-- il ne varie pas → chercher ailleurs (il dépend alors du programme, pas de la note) ;
-- `v` donne l'échelle du gain de sortie (8.23 si `80` = plein).
+Entries `r` to `v` keep their wheel: do not turn them during the reading. Intended
+reading: play a **soft** note on the LinnStrument, release it, note `r y C P H v`; then a
+**loud** note; then a loud one with the panel's Output Level halfway. Interpretation:
+- `voice+0x3c` varies with velocity → it is the velocity factor of the level; Z will
+  replace (or multiply) it in `voice+0x42c`, then `c0036dbc` will be called again;
+- it does not vary → look elsewhere (it then depends on the program, not the note);
+- `v` gives the scale of the output gain (8.23 if `80` = full).
 
-**Essai de la 3ᵉ version (2026-11-20) : LE marche, mais l'ampleur est faible** (petite
-variation autour du niveau, impossible de descendre au silence). Cause, lue dans `c0036dbc` :
-indice = S × (vélocité / 127) − S / 2, où S = `[voix+0x414] + 8` (réglage du slot, borné
-à 65 ; au-delà, S / 2 est remplacé par 32). Indice ≥ 0 → table `0xc01c8b54`, indice < 0 →
-table `0xc01c8954`, **≈ 0,19 dB par pas** ; gain borné à 0x800000 (0 dB), stocké en
-`voix+0x3b0`. Donc au mieux ≈ −6 dB à 0 dB par la vélocité : remplacer la vélocité par Z ne
-peut pas aller plus loin. D'où, sur la proposition de l'utilisateur, deux modes (4ᵉ
-version) : `LE` (volume × Z) et `vL` (Z remplace la vélocité).
+**Test of the 3rd version (2026-11-20): LE works, but the range is small** (small
+variation around the level, impossible to go down to silence). Cause, read in `c0036dbc`:
+index = S × (velocity / 127) − S / 2, where S = `[voice+0x414] + 8` (slot setting, capped
+at 65; beyond that, S / 2 is replaced by 32). Index ≥ 0 → table `0xc01c8b54`, index < 0 →
+table `0xc01c8954`, **≈ 0.19 dB per step**; gain capped at 0x800000 (0 dB), stored at
+`voice+0x3b0`. So at best ≈ −6 dB to 0 dB through velocity: replacing velocity with Z
+cannot go further. Hence, as the user proposed, two modes (4th version): `LE` (level × Z)
+and `vL` (Z replaces velocity).
 
-**Z sur le LinnStrument** : notre code lit Z dans le **Channel Pressure ou le Poly AT,
-sur 7 bits**. Le LinnStrument peut l'envoyer sur 14 bits (réglage de l'utilisateur pendant
-les essais du 2026-11-20). Si ce mode passe par un CC (CC11 + octet faible), notre code ne
-voit aucune pression : les essais de Z demandent Z en Channel Pressure ou Poly AT
-**[à vérifier : ce qu'envoie le mode 14 bits]**. Le 14 bits n'apporterait rien au volume
-(`voix+0x42c` est un entier de 0 à 127) ; pour les autres destinations, le lissage comble déjà
-les pas.
+**Z on the LinnStrument**: our code reads Z from **Channel Pressure or Poly AT, on 7
+bits**. The LinnStrument can send it on 14 bits (setting used by the user during the tests
+of 2026-11-20). If that mode goes through a CC (CC11 + low byte), our code sees no
+pressure: tests of Z need Z as Channel Pressure or Poly AT **[to check: what the 14-bit
+mode sends]**. 14 bits would bring nothing to the level (`voice+0x42c` is an integer from
+0 to 127); for the other destinations, smoothing already fills the steps.
 
-**Limites.**
-- Changer de destination pendant une note laisse les paramètres de l'ancienne destination
-  à leur dernière valeur jusqu'à la note suivante.
-- Y et Z tous deux sur `vE` : les deux écarts s'additionnent (chacun remplace la vélocité).
-- `P.LE` : une note commence au niveau de la pression reçue ; sans pression au départ,
-  l'attaque est muette jusqu'à ce que Z monte (normal en MPE).
+**Limits.**
+- Changing the destination during a note leaves the parameters of the old destination at
+  their last value until the next note.
+- Y and Z both on `vE`: the two offsets add up (each replaces velocity).
+- `P.LE`: a note starts at the level of the received pressure; without pressure at the
+  start, the attack is silent until Z rises (normal in MPE).
 
-**À essayer** (programme qui sonne molette en bas, A–D sur Off sauf mention) :
-1. Après la mise à jour, menu MIDI après 8 : `E`, `r`, `y`, `C`, `P`, `H`, `v` (le MPE
-   reste sur `On` s'il y était).
-2. `P.LE` : la pression règle le volume de chaque note, du silence au volume normal
-   (essayer aussi `H.Li`, `H.dO`) ; `P.vL` : petite variation, comme la 3ᵉ version.
-3. `y.Fr` : Y ouvre le filtre, note par note.
-4. `y.vE` sur un programme avec un morph Velocity : Y le pilote.
-5. `P.nO`, `P.vE` ; Y et Z ensemble sur `nO`.
-6. `C` puis `H` : `CA` plus progressif en bas, `dO` plus vif.
-7. `P.LE` et `v.On` : une note frappée doucement reste douce même pression à fond.
-8. Slot B sur le canal 3, `E.On` : les notes du canal 3 ne vont qu'au slot joué ; `E.Of` :
-   le slot B rejoue le canal 3.
+**To try** (a program that sounds with the wheel down, A–D on Off unless stated):
+1. After the update, MIDI menu after 8: `E`, `r`, `y`, `C`, `P`, `H`, `v` (MPE stays on
+   `On` if it was).
+2. `P.LE`: pressure sets the level of each note, from silence to the normal level (also
+   try `H.Li`, `H.dO`); `P.vL`: small variation, like the 3rd version.
+3. `y.Fr`: Y opens the filter, note by note.
+4. `y.vE` on a program with a Velocity morph: Y drives it.
+5. `P.nO`, `P.vE`; Y and Z together on `nO`.
+6. `C` then `H`: `CA` more gradual at the bottom, `dO` livelier.
+7. `P.LE` and `v.On`: a softly struck note stays soft even at full pressure.
+8. Slot B on channel 3, `E.On`: notes on channel 3 only go to the played slot; `E.Of`:
+   slot B plays channel 3 again.
 
-## Script d'essai (`tools/mpe_test.py`)
+## Test script (`tools/mpe_test.py`)
 
-Envoie des scénarios précis au clavier par USB (mido + python-rtmidi), comme un contrôleur
-MPE en zone basse : état initial (bend, CC74, pression) avant chaque Note On, un canal
-membre par note, « tout éteint » à la fin même après Ctrl-C.
+Sends precise scenarios to the keyboard over USB (mido + python-rtmidi), like an MPE
+controller in the lower zone: initial state (bend, CC74, pressure) before each Note On, one
+member channel per note, "all off" at the end even after Ctrl-C.
 
 ```sh
-python3 tools/mpe_test.py --list            # ports et scénarios
-python3 tools/mpe_test.py same-note         # même note sur deux canaux
-python3 tools/mpe_test.py y --seconds 10    # Y en sinusoïdes déphasées sur 3 notes
+python3 tools/mpe_test.py --list            # ports and scenarios
+python3 tools/mpe_test.py same-note         # same note on two channels
+python3 tools/mpe_test.py y --seconds 10    # Y as phase-shifted sine waves on 3 notes
 python3 tools/mpe_test.py all
 ```
 
-Scénarios : `same-note`, `bend`, `y`, `chord8` (charge), `pressure` (pour le palier Z),
-`master` (canal 1). Attendu pour `same-note` avec les paliers actuels : les deux notes
-**partagent** la même entrée (une note est encore identifiée par (slot, numéro)), donc le
-relâchement du canal 2 coupe sans doute aussi la note du canal 3.
+Scenarios: `same-note`, `bend`, `y`, `chord8` (load), `pressure` (for the Z stage),
+`master` (channel 1). Expected for `same-note` before stage 9: the two notes **share** the
+same entry (a note was still identified by (slot, number)), so releasing channel 2 probably
+also cut the note on channel 3.
 
-## Procédure d'essai sur l'instrument
+## Test procedure on the instrument
 
-Avant tout : le fichier officiel reste disponible (dmg dans `vendor/`). En cas d'OS qui ne
-démarre pas : **allumer en tenant Shift + Store**, puis installer l'OS officiel.
+First of all: the official file remains available (dmg in `vendor/`). If an OS does not
+boot: **power on while holding Shift + Store**, then install the official OS.
 
-1. **Palier 0.** Allumer en tenant Shift + Store (« RDY »), lancer l'updater officiel,
-   installer. Vérifier que tout marche et que les programmes sont là.
-2. **Palier 1.** Même chose avec `build/palier1_os.app`. Attendu : « Update completed
-   successfully », instrument identique.
-3. **Palier 2.** Même chose avec `build/palier2_os.app`. Puis, menu MIDI : canal global
-   = 1. Jouer depuis l'Osmose ou le LinnStrument en mode MPE (zone basse, 15 canaux).
-   Attendu : toutes les notes jouent sur le slot qui a le Keyboard Focus, quel que soit
-   leur canal ; pas encore d'expression par note. Vérifier aussi le clavier local, les
-   autres slots, et le démarrage à froid.
-4. **Palier 3.** Même procédure avec `build/palier3_os.app`, canal global = 1.
-   Contrôleur en MPE zone basse, **plage de bend des canaux membres réglée à ±48**.
-   Attendu : chaque note suit son propre glissé ; le bend du canal 1 (ou le stick)
-   déplace toutes les notes selon la plage du programme. Essayer aussi : deux notes
-   glissées en sens contraires, note relâchée pendant un glissé (la release suit encore
-   le canal), changement de programme.
-5. **Palier 4.** Même procédure avec `build/palier4_os.app`, canal global = 1. Choisir
-   (ou régler) un programme avec un **morph Velocity bien audible** (ex. Filter Freq ou
-   niveau d'un oscillateur, Velocity morph) et l'enveloppe d'ampli **sans** vélocité si
-   possible. Attendu : faire glisser le doigt en Y (LinnStrument) ou le mouvement
-   correspondant de l'Osmose change le timbre **de cette note seulement** ; les autres
-   notes tenues gardent le leur. Vérifier aussi : le bend par note (palier 3) marche
-   encore ; le CC74 du canal 1 garde son effet habituel ; pas de saccades ni de notes
-   perdues avec un accord de 8 notes et Y en mouvement continu (charge du processeur).
-6. **Palier 5.** Même procédure avec `build/palier5_os.app`, canal global = 1. Prendre un
-   programme d'usine dont la molette fait un effet net, **molette au repos**. Attendu :
-   `python3 tools/mpe_test.py y` fait varier cet effet sur chaque note séparément ; la
-   vélocité de frappe garde son effet habituel ; la molette agit sur toutes les notes.
-   Puis `bend`, `chord8` et `same-note`.
-7. **Palier 6.** `build/palier6_os.app`, mêmes réglages (A–D sur Off, canal global = 1).
-   - Y à fond doit donner le même effet que la molette à fond.
-   - Y doit glisser sans paliers audibles.
-   - La pression doit faire le volume de chaque note ; un contrôleur qui n'envoie pas de
-     pression garde le volume normal.
-   - Vérifier aussi un accord de 8 notes avec Y et Z en mouvement (charge).
-8. **Palier 7.** Mêmes essais que le palier 6 ; attendu : plus d'artefacts quand le doigt
-   bouge sur le pad.
-9. **Palier 8.** La pression doit faire le volume de chaque note, du silence au
-   plein volume, quelle que soit la vélocité de frappe. La relâche doit rester audible
-   quand on lève le doigt. Si rien ne change, vérifier sur le contrôleur ce qu'il envoie
-   pour Z (Channel Pressure ou Poly AT) et sa valeur minimale.
-10. **Palier 9.** Tenir la même hauteur sur deux canaux, par exemple deux rangées du
-    LinnStrument. Attendu :
-    - chaque doigt garde son bend, son Y et sa pression ;
-    - les deux notes sont à la même hauteur ;
-    - lever un doigt n'éteint que sa note.
-11. Noter ce qui se passe et revenir à l'officiel si besoin.
+1. **Stage 0.** Power on while holding Shift + Store ("RDY"), run the official updater,
+   install. Check that everything works and that the programs are there.
+2. **Stage 1.** Same with `build/palier1_os.app`. Expected: "Update completed
+   successfully", instrument unchanged.
+3. **Stage 2.** Same with `build/palier2_os.app`. Then, MIDI menu: global channel = 1.
+   Play from the Osmose or the LinnStrument in MPE mode (lower zone, 15 channels).
+   Expected: all notes play on the slot that has the Keyboard Focus, whatever their
+   channel; no per-note expression yet. Also check the local keyboard, the other slots,
+   and a cold boot.
+4. **Stage 3.** Same procedure with `build/palier3_os.app`, global channel = 1.
+   Controller in MPE lower zone, **bend range of member channels set to ±48**. Expected:
+   each note follows its own glide; the bend of channel 1 (or the stick) moves all notes
+   according to the program's range. Also try: two notes gliding in opposite directions,
+   a note released during a glide (the release still follows the channel), a program
+   change.
+5. **Stage 4.** Same procedure with `build/palier4_os.app`, global channel = 1. Choose
+   (or set up) a program with a **clearly audible Velocity morph** (e.g. Filter Freq or an
+   oscillator level, Velocity morph) and the amp envelope **without** velocity if
+   possible. Expected: sliding the finger in Y (LinnStrument) or the matching gesture on the
+   Osmose changes the timbre **of that note only**; the other held notes keep theirs. Also
+   check: per-note bend (stage 3) still works; CC74 on channel 1 keeps its usual effect;
+   no stutter or lost notes with an 8-note chord and Y in continuous motion (CPU load).
+6. **Stage 5.** Same procedure with `build/palier5_os.app`, global channel = 1. Take a
+   factory program whose wheel has a clear effect, **wheel at rest**. Expected:
+   `python3 tools/mpe_test.py y` varies that effect on each note separately; the striking
+   velocity keeps its usual effect; the wheel acts on all notes. Then `bend`, `chord8` and
+   `same-note`.
+7. **Stage 6.** `build/palier6_os.app`, same settings (A–D on Off, global channel = 1).
+   - Y fully up must give the same effect as the wheel fully up.
+   - Y must glide without audible steps.
+   - Pressure must set the level of each note; a controller that sends no pressure keeps
+     the normal level.
+   - Also check an 8-note chord with Y and Z in motion (load).
+8. **Stage 7.** Same tests as stage 6; expected: no more artefacts when the finger moves
+   on the pad.
+9. **Stage 8.** Pressure must set the level of each note, from silence to full level,
+   whatever the striking velocity. The release must stay audible when the finger is
+   lifted. If nothing changes, check on the controller what it sends for Z (Channel
+   Pressure or Poly AT) and its minimum value.
+10. **Stage 9.** Hold the same pitch on two channels, for example two rows of the
+    LinnStrument. Expected:
+    - each finger keeps its bend, its Y and its pressure;
+    - both notes are at the same pitch;
+    - lifting a finger only switches off its note.
+11. Write down what happens and go back to the official OS if needed.
 
-## Résultats des essais (2026-11-19)
+## Test results (from 2026-11-19)
 
-| Palier | Résultat |
+| Stage | Result |
 |---|---|
-| 1 | OK. L'updater re-signé se lance ; le clavier accepte le fichier recompressé. |
-| 2 | OK en Performance : les notes des canaux 2 à 16 jouent sur le slot en Keyboard Focus. Pas de bend ni de timbre par note (attendu). |
-| 3 | OK : notes des canaux 2 à 16, **bend par note indépendant**. |
-| 5 (3ᵉ version) | **OK** : Y (CC74) des canaux 2 à 16 agit comme un morph Wheel propre à chaque note. Deux défauts : Y à 127 n'atteint pas l'effet de la molette à fond, et la modulation va **par paliers audibles** (la molette est fluide). Corrigés au palier 6 [à essayer]. |
-| 6 | Z → volume par note : semble marcher (pas sûr ; à mettre en option). Échelle de Y : semble correcte maintenant. **Artefacts insupportables** quand le doigt bouge sur le pad : Y arrive en continu, et chaque pas recalculait toute la voix. Palier 7. |
-| 11 (4ᵉ version, 2026-11-20) | **OK** : `P.LE` (volume × Z) marche ; `Fr` (Filter Freq) déjà vu aux essais précédents. |
-| 9 (2ᵉ version) | **OK** : même hauteur sur deux canaux, chaque note garde son expression, plus de notes bloquées. |
-| 9 (1ʳᵉ version) | **Notes bloquées** : l'alias était libéré au premier des Note Off envoyés à chaque cible. Corrigé (2ᵉ version, à essayer). |
-| 8 | Z → Level **semble fonctionner, mais décevant** comme mode de jeu. Décision : ne pas aller plus loin ; Z → Wheel ou Velocity viendra en option du menu. **Même note sur deux canaux** (essai) : la note la plus récente vole le bend de la plus ancienne (limite connue du palier 3). |
-| 7 (Z) | Z → Level décevant : on n'entend pas bien s'il agit, la vélocité semble prendre le dessus. Palier 8. |
-| 7 | **Artefacts disparus** : appliquer Y paramètre par paramètre, comme la molette, était la bonne voie. Impression que Y à 127 n'atteint pas encore tout à fait la molette à fond (contrôleur ou échelle, à départager). |
-| 5 (1ʳᵉ et 2ᵉ versions) | Stable, synthé responsif. **Y sans effet** (quantités Wheel jamais captées, voir « Palier 5 en détail »). Contournement de la collision : canaux A–D sur Off. |
-| 4 | **En fait non** (CC74 jamais reçu, voir palier 5, 3ᵉ version). Impression d'abord : Y agit note par note (essai sur une Performance à un seul layer, morph Velocity → cutoff). Le bend par note marche toujours. **Réglage difficile** : il faut construire le morph Velocity à la main, avec sa plage, programme par programme. |
+| 1 | OK. The re-signed updater launches; the keyboard accepts the recompressed file. |
+| 2 | OK in Performance: notes on channels 2 to 16 play on the slot in Keyboard Focus. No per-note bend or timbre (expected). |
+| 3 | OK: notes on channels 2 to 16, **independent per-note bend**. |
+| 5 (3rd version) | **OK**: Y (CC74) of channels 2 to 16 acts as a Wheel morph of its own for each note. Two faults: Y at 127 does not reach the effect of the wheel fully up, and the modulation moves **in audible steps** (the wheel is smooth). Fixed in stage 6. |
+| 6 | Per-note Z → level: seems to work (not sure; to be made an option). Y scale: seems right now. **Unbearable artefacts** when the finger moves on the pad: Y arrives continuously, and each step recomputed the whole voice. Stage 7. |
+| 11 (4th version, 2026-11-20) | **OK**: `P.LE` (level × Z) works; the other Y and Z destinations, the curves and `v` (Z × velocity) also tried: OK. |
+| 9 (2nd version) | **OK**: same pitch on two channels, each note keeps its expression, no more stuck notes. |
+| 9 (1st version) | **Stuck notes**: the alias was freed at the first of the Note Offs sent to each target. Fixed (2nd version). |
+| 8 | Z → Level **seems to work, but disappointing** as a way to play. Decision: go no further; Z → Wheel or Velocity will come as a menu option. **Same note on two channels** (test): the most recent note steals the bend of the older one (known limit of stage 3). |
+| 7 (Z) | Z → Level disappointing: hard to hear whether it acts, velocity seems to dominate. Stage 8. |
+| 7 | **Artefacts gone**: applying Y parameter by parameter, like the wheel, was the right way. Impression that Y at 127 does not quite reach the wheel fully up yet (controller or scale, to be settled). |
+| 5 (1st and 2nd versions) | Stable, synth responsive. **Y has no effect** (Wheel amounts never captured, see "Stage 5 in detail"). Workaround for the collision: channels A–D on Off. |
+| 4 | **Actually not** (CC74 never received, see stage 5, 3rd version). First impression: Y acts note by note (test on a single-layer Performance, Velocity morph → cutoff). Per-note bend still works. **Hard to set up**: the Velocity morph has to be built by hand, with its range, program by program. |
 
-Déroulé d'une mise à jour vu sur l'updater : « freeing some space for update », puis
-transfert, puis redémarrage automatique du clavier. **Quitter l'updater après chaque
-mise à jour** : sinon une nouvelle ouverture signale que le port (protocole) est déjà
-utilisé.
+Course of an update as seen on the updater: "freeing some space for update", then
+transfer, then automatic restart of the keyboard. **Quit the updater after each update**:
+otherwise opening it again reports that the port (protocol) is already in use.
 
-**Ergonomie de Y (palier 4).** Le principe marche, mais il dépend d'un morph Velocity
-réglé dans chaque programme, et la plage du morph se règle mal depuis le panneau. Pistes :
-la fonction d'aide « convertir pour le MPE » (poser un morph Velocity → cutoff par
-défaut), ou une destination fixe pour Y, indépendante des morphs du programme.
+**Ergonomics of Y (stage 4).** The principle works, but it depends on a Velocity morph set
+in each program, and the morph's range is awkward to set from the panel. Ideas: the
+"convert for MPE" helper function (set a Velocity morph → cutoff by default), or a fixed
+destination for Y, independent of the program's morphs (done in stage 11: `y.Fr`).
 
-**Collision avec les canaux des slots.** Hors Performance, un slot réglé sur un canal
-MIDI propre (ex. slot C sur le canal 4) joue aussi les notes MPE de ce canal, en plus du
-slot en Keyboard Focus. À traiter quand le MPE aura son entrée de menu : soit ignorer
-les canaux propres des slots pendant que la zone est active, soit le signaler.
+**Collision with the slots' channels.** Outside Performance, a slot set to its own MIDI
+channel (e.g. slot C on channel 4) also plays the MPE notes of that channel, in addition to
+the slot in Keyboard Focus. Handled in stage 11: in MPE mode, A–D channels lying on a
+member channel are ignored.

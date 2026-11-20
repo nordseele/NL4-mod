@@ -1,385 +1,268 @@
-# HANDOFF — état du projet NL4 M (MPE pour le Nord Lead 4)
+# HANDOFF — status of the NL4 M project (MPE for the Nord Lead 4)
 
-Dernière mise à jour : 2026-11-20.
+Last update: 2026-11-20.
 
-## Reprise dans une nouvelle conversation
+## Resuming in a new conversation
 
-**Situation** : paliers 1 à 3 **essayés et réussis** sur l'instrument le 2026-11-19
-(bend par note ±48 sur les canaux 2 à 16 ; `docs/patches.md`, « Résultats des essais »).
-**Palier 4 essayé le 2026-11-19, semble marcher** (Y par note ; réglage du morph Velocity
-pénible, voir « Ergonomie de Y » dans `docs/patches.md`) : Y (CC74) des canaux 2 à 16 →
-`voice_apply_velocity` dans `synth_tick` (`build/palier4_os.app`, `docs/patches.md`).
-**Palier 5** : Y → morph Wheel par voix (la vélocité reste celle de la note). 1ʳᵉ version
-essayée : stable, mais Y sans effet ; 2ᵉ version (quantités Wheel lues dans le modèle
-de paramètres du slot) : stable, Y toujours sans effet. Diagnostic : aucun effet, ce qui a mené à la
-**vraie cause** : les CC passent par un relais de sous-objet (`0xc01202a4`) qui saute
-directement à `midi_cc_in` ; le CC74 n'a jamais atteint notre code (paliers 4 et 5).
-**3ᵉ version (relais branché) essayée le 2026-11-19 : ça marche**, Y agit comme un morph
-Wheel par note, mais Y à 127 reste en dessous de la molette à fond, et la modulation va par paliers audibles.
-**Palier 6 essayé** : Z semble marcher (à mettre en option), échelle de Y correcte, mais
-artefacts insupportables (Y continu → recalcul complet de la voix à chaque pas).
-**Palier 7 essayé le 2026-11-19 : artefacts disparus** (`build/palier7_os.app`) : Y n'applique
-plus que les paramètres morphés, un par un, comme la molette. Reste à départager : Y à 127
-semble encore un peu en dessous de la molette à fond (contrôleur ou échelle).
-Z → Level décevant au palier 7. **Palier 8 essayé : semble fonctionner, mais décevant ; on
-s'arrête là** (Z → Wheel / Velocity en option du menu). Même note sur deux canaux : la plus
-récente vole le bend de l'autre. **Reprise (nouvelle conversation, 2026-11-19)** : palier 9, 2ᵉ version, **essayé : OK** (même hauteur
-sur deux canaux, plus de notes bloquées). **Menu MIDI étudié le 2026-11-19
-(`docs/menus.md`)** : construction des pages et des entrées (`menus_build`), réglages
-globaux (34 descripteurs en `0xc03bff00`, `global_get` / `global_step`), sauvegarde
-(enregistrement fixe de 38 octets, 160 bits libres). Piste retenue : ajouter nos
-réglages à la fin de la table, sans changer de version, et nos entrées clonées de
-PB Mode. **Complété le 2026-11-20** : la navigation suit le compte de la page (entrées
-ajoutées atteintes sans autre changement), l'afficheur reçoit de l'ASCII (lettres sûres
-listées), l'écriture en flash est automatique (minuterie de 2 s), rôles des n° nommés.
-Étude du menu terminée. **Palier 10, 1ʳᵉ version : le clavier ne redémarrait plus**
-(4 réglages globaux ajoutés ; l'écouteur de ces réglages a des tableaux de 34 cases figés
-dans son objet). **2ᵉ version essayée le 2026-11-20 : démarre, menu affiché, mais `P` n'agit qu'après un
-redémarrage** (l'application n'est pas prévenue du n° 0x21). **3ᵉ version (la molette relance
-elle-même la création des zones) : même défaut.** Diagnostic prêt :
-`build/palier10diag_os.app` (`r` = zones du slot A, `y` = relances | g_mpe_on).
-**Relevé : la relance marche** (`r.02` → `r.20`, `y.60` → `y.71` sans redémarrer) ; le
-silence venait du programme d'essai et de `y` resté sur `Of`. **Palier 10 (3ᵉ version)
-essayé : OK.** Détails
-(`build/palier10_os.app`, `docs/patches.md`, « Palier 10 en détail ») : les options sont
-des bits du réglage 0x21 (inutilisé). Entrées MIDI `P` (MPE Of/On), `r` (bend
-48/24/12/2), `y` (Y On/Of), `L` (Z On/Of), sauvegardées ; le MPE ne dépend plus du canal
-global. Si elle ne démarre pas : `build/palier9dead_os.app` dit si la zone morte est en
-cause. Une partie du code est dans une zone de code mort
-du firmware (`tools/find_dead_code.py`), seul risque nouveau. **Palier 11** (`build/palier11_os.app`, `docs/patches.md`, « Palier 11 en détail », avec
-le tableau du menu) : destinations de Y (`y`) et de Z (`P`, pression) au choix (molette,
-vélocité, Filter Freq, Output Level pour Z), courbes (`C`, `H`), Z × vélocité (`v`), canaux
-A–D sur un canal membre ignorés en MPE ; le MPE passe sur `E`. 1ʳᵉ version essayée le
-2026-11-20 : Z → Filter Freq OK, Z → Level sans effet (gain d'ampli des paliers 6 à 10).
-2ᵉ version (lettres E / P, Wheel affiché `nO`) : Level toujours sans effet. Diagnostic
-relevé : `voix+0x3c` = vélocité, lue par la méthode du volume par voix en `voix+0x42c`.
-**3ᵉ version essayée : LE marche, ampleur trop faible (≈ 6 dB). 4ᵉ version (`1b7fb57c…`), essayée le 2026-11-20 : OK. `P.LE` = gain de volume de la voix × Z, renvoyé au SHARC par `c005ee84` (de 0 au volume normal) ; l'ancien mode devient `P.vL`.** 3ᵉ version (`f5db51f3…`) : Z écrit en `voix+0x42c`, puis cette méthode est
-rappelée. Essais de Z avec le LinnStrument en Channel Pressure ou Poly AT 7 bits (le mode
-14 bits passe peut-être par un CC, que notre code ne lit pas). Le trou après le CODE est plein (0xab8 / 0xad0) : la suite ira dans
-les zones mortes.
-**Palier 9** (`build/palier9_os.app`) : même hauteur sur
-plusieurs canaux par renumérotation de la note (`docs/patches.md`, « Palier 9 en détail »).
-Palier 8 (`build/palier8_os.app`) : Poly AT accepté, courbe Z², Z remplace la vélocité pour le
-volume, Z = 0 retardé de 3 ticks (relâche). Ensuite : étude du menu MIDI (lecture seule, en cours : `docs/menus.md`),
-puis RPN 6 / RPN 0. Note de transfert pour un projet Nord Stage 2 : `docs/pour-nord-stage-2.md`.
-**Options voulues dans le menu MIDI** (décision de l'utilisateur, 2026-11-19) : destination
-de Y au choix Velocity, Wheel ou Cutoff direct ; même choix pour Z, plus Level. Toutes
-passent par le chemin paramètre par paramètre du palier 7. Aussi : courbes de réponse au choix
-pour Y et Z ; Z remplace ou multiplie la vélocité ; plage de bend réglable ; canaux A–D
-ignorés automatiquement en mode MPE. Palier 6 : Z (pression) → Level par
-note (gain d'ampli renvoyé au SHARC), Y et Z lissés, quantités Wheel sur 16 bits, variables
-déplacées au début du tas (`docs/patches.md`, « Palier 6 en détail »). Pendant les essais : canaux A–D sur Off
-(sinon collision avec les canaux membres). L'utilisateur préfère les essais à la main
-(`tools/mpe_test.py` existe). Ensuite : les options du menu MIDI (MPE Off / zone, Z → Level en option). Tableau de reprise
-d'origine :
+**Status**: **stage 11 tried on the instrument on 2026-11-20: OK** (`build/palier11_os.app`,
+`os.cab` `1b7fb57c…c2274204`). All MPE options are in the MIDI menu, after entry 8 (table
+in `README.md` and in `docs/patches.md`, "Stage 11 in detail"):
+- MPE lower zone, member channels 2 to 16, from an **external** MPE controller (the Lead 4's
+  own keyboard has no aftertouch and sends no per-note expression);
+- per-note bend (48 / 24 / 12 / 2 semitones);
+- Y (CC74) and Z (Channel Pressure or Poly AT of the member channels) each routed to the
+  Wheel morph, the Velocity morph or Filter Freq directly; Z also to the voice level
+  (`LE`: level × Z, from silence to the normal level; `vL`: Z replaces the level's
+  velocity, ≈ 6 dB);
+- curves for Y and Z, Z × velocity;
+- A–D channels lying on a member channel are ignored while MPE is on;
+- same pitch on several channels (stage 9, note renumbering).
 
-| Résultat | Suite |
+Tried by the user with the Osmose and the LinnStrument: all destinations, curves and
+`v` work. Z on the LinnStrument must be sent as Channel Pressure or Poly AT on 7 bits (the
+14-bit mode may go through a CC, which our code does not read **[to check]**).
+
+The step-by-step history (stages 1 to 11, each version and each test) is in
+`docs/patches.md`. Space: the hole after the CODE is full (0xab8 / 0xad0); the next
+additions go into the dead code areas (`tools/find_dead_code.py`, `DEAD` in `build.py`).
+
+**Not done, by the user's choice (2026-11-20)**: RPN 6 / RPN 0 (letting the controller set
+the zone and the bend range). Low priority; the menu is enough. If it is done one day: as
+a convenience on top of the menu, never as a dependency.
+
+**Repository**: `github.com/nordseele/NL4-mod`, public since 2026-11-20 (README, warning
+and licence modelled on P12 M). `hardware/` (photos of the board) stays local.
+
+Recovery table kept from the first stages:
+
+| Result | Next |
 |---|---|
-| L'updater re-signé ne se lance pas | regarder le message macOS ; essayer `xattr -cr` / signature ad hoc à la main, ou remplacer `os.cab` dans l'app officielle copiée |
-| Le clavier refuse le fichier (palier 1) | relire `CBinFile::Verify` côté Mac et le programme Update (inconnu) ; comparer avec `os.cab` officiel |
-| Palier 2 : les notes des canaux 2–16 ne jouent pas | les notes dépendent sans doute aussi des masques (`fn_c011c344` sur `+0x53C` et `+0x170+4i`, comme dans `midi_routing_setup`) : les ajouter |
-| Palier 2/3 : plantage au démarrage | mémoire (36 zones par cible) : baisser à 20 ou n'ajouter les membres que sur un port ; récupérer par Shift + Store + OS officiel |
-| Palier 3 marche | palier 4 : Y (CC74) → entrée vélocité de la voix (`voice_apply_velocity`, `midi_cc_in`), puis Z (pression, `midi_pressure_in`) |
+| The re-signed updater does not launch | look at the macOS message; try `xattr -cr` / ad hoc signing by hand, or replace `os.cab` in a copy of the official app |
+| The keyboard refuses the file (stage 1) | re-read `CBinFile::Verify` on the Mac side and the Update program (unknown); compare with the official `os.cab` |
+| A modified OS does not boot | power on while holding Shift + Store, install the official OS 1.32; for stage 10 and later, `build/palier9dead_os.app` tells whether the dead area is the cause |
 
-Mise en route technique :
-1. Lire ce fichier, `docs/patches.md`, `docs/faisabilite.md`, puis `docs/voices-midi.md`.
-2. Conteneur Ghidra : `docker ps --filter name=pyghidra-nl4` (sinon `docker start
-   pyghidra-nl4`). L'ELF importé porte tous les noms de `tools/symbols.txt` (99 noms).
-3. Image de compilation des patchs : `docker build -t nl4-arm tools/patch` si elle
-   manque. Construire : `docker run --rm -v "$PWD":/w nl4-arm python3 -I
-   tools/patch/build.py palier3`, puis `tools/patch/make_updater.sh build/palier3_os.cab`.
-4. Si `ghidra/bin/` est vide : `tools/rebuild.sh`, puis le pseudo-C (commande en tête de
-   `tools/dump_decomp.py`, en arrière-plan) ; contrôle : 0 « Subroutine does not
-   return ».
-5. Programmes SHARC : `tools/extract_sharc.py` et `docs/sharc.md` (projet Ghidra jetable
-   dans `ghidra/sharc_work/`, extension compilée dans le projet Prophet 12).
+Technical start-up:
+1. Read this file, `docs/patches.md`, `docs/feasibility.md`, then `docs/voices-midi.md`.
+2. Ghidra container: `docker ps --filter name=pyghidra-nl4` (otherwise `docker start
+   pyghidra-nl4`). The imported ELF carries all names from `tools/symbols.txt`.
+3. Build image for the patches: `docker build -t nl4-arm tools/patch` if it is missing.
+   Build: `docker run --rm -v "$PWD":/w nl4-arm python3 -I tools/patch/build.py
+   palier11`, then `tools/patch/make_updater.sh build/palier11_os.cab`.
+4. If `ghidra/bin/` is empty: `tools/rebuild.sh`, then the pseudo-C (command at the top
+   of `tools/dump_decomp.py`, in the background); check: 0 "Subroutine does not return".
+5. SHARC programs: `tools/extract_sharc.py` and `docs/sharc.md` (throwaway Ghidra project
+   in `ghidra/sharc_work/`, extension built in the Prophet 12 project).
 
-**Activation du MPE dans les paliers 2–3** : uniquement par **canal MIDI global = 1**
-(pas par un message du contrôleur). Rustine de prototype : à remplacer par une entrée du
-menu MIDI (« MPE : Off / zone basse / zone haute »), le message de configuration MPE
-(RPN 6) pouvant s'y ajouter en confort, jamais en dépendance. Le système de menus reste à
-lire (piste : descripteurs de menu comme `fn_c010885c`, « Velocity Morph » / « Wheel
-Morph »).
+Checks at each build (method used since stage 9): rebuild the previous stages and check
+that they stay identical byte for byte; compare the new image word by word with the
+original (only the expected words, the dead area used and the added code may differ);
+re-extract the `.cab`; no call to libgcc in the produced code. The user tests by hand on
+the instrument; if a cause is not sure, prefer a diagnostic version that shows the state
+in the menu over a blind fix. Always test with a program that sounds with the wheel down.
 
-**Décisions prises** : prototype avec Y sur Velocity d'abord ; sources Y/Z distinctes
-plus tard (piste Impulse 6/7, `docs/faisabilite.md`) ; ensuite fonctions d'aide à la
-conversion d'un programme ; idée d'éditeur de programmes à étudier après le prototype
-(piste : contribuer le Lead 4 à OpenNord). Sauvegarde matérielle de la flash
-abandonnée (U38 vide, `docs/hardware.md`).
+**Decisions taken**: prototype with Y on Velocity first, then per-parameter application
+(stage 7) and selectable destinations (stage 11); then helper functions to convert a
+program; a program editor idea to study later (lead: contribute the Lead 4 to OpenNord).
+Hardware backup of the flash dropped (U38 empty, `docs/hardware.md`).
 
-## Objectif
+## Goal
 
-MPE complet sur le Nord Lead 4 : X = pitch bend par note (±48 demi-tons), Y = timbre
-(CC74), Z = pression (channel pressure par canal membre). Il faut d'abord comprendre
-l'allocation des voix et les modes Performance / slots, puis décider à quel niveau
-greffer le MPE.
+Full MPE on the Nord Lead 4: X = per-note pitch bend (±48 semitones), Y = timbre (CC74),
+Z = pressure (channel pressure per member channel). As many MPE notes as possible
+(chords of 8 notes and more), each note independent (X/Y/Z). Controllers: Expressive E
+Osmose and LinnStrument. The "light MPE" with 4 slots was already tried and is not the
+goal.
 
-## Où on en est
+## Where things stand (analysis)
 
-- [x] `os.cab` décodé : table des sections, compression LZO1X (`docs/oscab-format.md`).
-- [x] OS v1.32 complet décompressé (4,2 Mo de code ARM) et chargé dans Ghidra.
-- [x] La 2ᵉ image est identifiée : un firmware de test usine.
-- [x] **Adresses corrigées** : toutes les adresses de fonctions notées avant le commit
-  qui suit `6c7f2fb` étaient 0x20 trop hautes (voir l'encadré de `docs/voices-midi.md`).
-  Explication complète le 2026-11-18 : les offsets des sections comptent depuis l'en-tête
-  de l'image, pas depuis le préambule. Le prétendu « en-tête non chargé » était la fin de
-  la section précédente (`docs/oscab-format.md`). Les adresses restent bonnes ; chaque
-  section a récupéré ses 0x20 derniers octets.
-- [x] **Checksums des 6 sections reproduits** (2026-11-18) : `~somme des octets`, sur la
-  section et sur le flux compressé. `tools/unpack_oscab.py` les vérifie à chaque
+- [x] `os.cab` decoded: section table, LZO1X compression (`docs/oscab-format.md`).
+- [x] Full OS v1.32 decompressed (4.2 MB of ARM code) and loaded in Ghidra.
+- [x] The 2nd image is identified: a factory test firmware.
+- [x] **Addresses corrected**: all function addresses noted before the commit following
+  `6c7f2fb` were 0x20 too high (see the box in `docs/voices-midi.md`). Full explanation on
+  2026-11-18: section offsets count from the image header, not from the preamble. The
+  so-called "unloaded header" was the end of the previous section
+  (`docs/oscab-format.md`). Addresses stay valid; each section got its last 0x20 bytes
+  back.
+- [x] **Checksums of the 6 sections reproduced** (2026-11-18): `~sum of bytes`, on the
+  section and on the compressed stream. `tools/unpack_oscab.py` checks them at each
   extraction.
-- [x] **Protocole de mise à jour lu** dans le programme Mac (`docs/update-protocol.md`) :
-  4 programmes sur le clavier (OS, TP, Update, Boot). Update et Boot ne sont pas dans
-  `os.cab`, donc vraisemblablement jamais réécrits.
-- [~] Réception MIDI : chaîne complète jusqu'aux slots pour les contrôleurs (bend = n° 9,
-  pression = n° 8), aiguillage par **masques de bits (port, canal)** par cible, donc un
-  slot peut déjà écouter plusieurs canaux. Notes : chemin connu jusqu'au **Note On du
-  slot** (`slot_note_on`), avec **une zone par couple (port, canal)** et une table de
-  128 notes par zone dans les cibles. Reste le lien `slot_note_on` → gestionnaire de voix.
-- [~] Voix : 4 slots + réservoir global de 20 voix, réservoir de 64 notes, vol de voix
-  par priorité, hauteur calculée et écrite voix par voix. **Une note est identifiée par
-  (slot, numéro de note), sans le canal** : c'est la première chose à changer pour le MPE.
-- [x] Où tourne la synthèse : deux SHARC ADSP-21489, 10 voix chacun ; l'ARM écrit
-  leurs paramètres en mémoire par `hw_write` (`docs/sharc.md`).
-- [x] **Chemin du bend** (2026-11-18) : bend MIDI → paramètre 0x23 du slot → objet bend
-  du moteur du slot (`engine+0x28C`), lissé sur 32 ticks → lu par chaque voix dans
-  `voice_pitch_offset`, à côté du glide propre à la voix. **Courbe non linéaire
-  au-delà de 2 demi-tons** (linéaire puis parabolique) : le MPE à ±48 demandera sa propre
-  échelle. Bend Range = paramètres moteur 0x21 (les deux sens) / 0x22 (vers le bas). Le
-  pitch stick du panneau : chemin non trouvé, à tester sur l'instrument.
-- [x] **Note On du slot → allocateur** (2026-11-18) : le canal disparaît dès l'appel au
-  slot (paires {note, vélocité}). Chaîne : filtre de destinations → arpégiateur →
-  sortie du slot → file d'événements {type, slot, note} → gestionnaire de notes (patron
-  visiteur, 6 types). Table des notes = arbre clé `note | slot << 8`. Piste MPE : note
-  étendue `note + 128 × canal` dès `target_note_on`, clé de l'arbre élargie, hauteur
-  masquée. `note_off_release_voices` était mal nommé (c'est l'allocation au Note On).
+- [x] **Update protocol read** in the Mac program (`docs/update-protocol.md`): 4 programs
+  on the keyboard (OS, TP, Update, Boot). Update and Boot are not in `os.cab`, so most
+  likely never rewritten.
+- [x] MIDI input: complete chain to the slots for controllers (bend = no. 9, pressure =
+  no. 8), routing by **(port, channel) bit masks** per target, so a slot can already
+  listen to several channels. Notes: **one zone per (port, channel) pair** and a 128-note
+  table per zone in the targets, then slot → allocator (`docs/voices-midi.md`).
+- [x] Voices: 4 slots + a global pool of 20 voices, a pool of 64 notes, voice stealing by
+  priority, pitch computed and written voice by voice. **A note is identified by (slot,
+  note number), without the channel**: handled by stages 3 and 9.
+- [x] Where synthesis runs: two SHARC ADSP-21489, 10 voices each; the ARM writes their
+  parameters in memory through `hw_write` (`docs/sharc.md`).
+- [x] **Bend path** (2026-11-18): MIDI bend → slot parameter 0x23 → bend object of the
+  slot's engine (`engine+0x28C`), smoothed over 32 ticks → read by each voice in
+  `voice_pitch_offset`, next to the voice's own glide. **Non-linear curve beyond 2
+  semitones** (linear then parabolic): MPE at ±48 uses its own scale. Bend Range = engine
+  parameters 0x21 (both directions) / 0x22 (downwards). The panel's pitch stick: path not
+  found, to test on the instrument.
+- [x] **Slot Note On → allocator** (2026-11-18): the channel disappears as soon as the
+  slot is called ({note, velocity} pairs). Chain: destination filter → arpeggiator → slot
+  output → event queue {type, slot, note} → note handler (visitor pattern, 6 types). Note
+  table = tree keyed by `note | slot << 8`.
+- [x] **MIDI menu** (`docs/menus.md`): page and entry construction (`menus_build`), global
+  settings (34 descriptors at `0xc03bff00`, `global_get` / `global_step`, the number is
+  fixed at 34), saving (fixed 38-byte record), navigation, display (ASCII, safe letters),
+  automatic flash write (2 s timer). Our options are bit fields of setting 0x21.
 
-Détail : **`docs/voices-midi.md`**. Noms des fonctions : `tools/symbols.txt`.
+Details: **`docs/voices-midi.md`**. Function names: `tools/symbols.txt`.
 
-## Objectif MPE retenu (2026-11-18)
+## Environment
 
-Pas le « MPE léger » à 4 slots (déjà testé, pas le but). Visé : le plus de notes MPE
-possible (accords de 8 notes et plus), chaque note indépendante (X/Y/Z). Contrôleurs :
-Expressive E Osmose et LinnStrument. Idéal : une zone MPE par slot, et/ou une zone au
-niveau de la Performance avec bascule automatique quand le clavier est en mode
-Performance.
+- Container `pyghidra-nl4` (port 8003), project `ghidra/nl4_ghidra.gpr`, program
+  `/nl4_os132_full.elf-<suffix>` (the suffix changes at each import:
+  `list_project_binaries`). MCP server declared in `.mcp.json`. Other pyghidra containers
+  (octalab, p12, sharc) belong to other projects: **do not touch them**.
+- The Mac update program is also in the Ghidra project (`/nordosupdate_x86_64-<suffix>`,
+  x86_64 slice extracted with `lipo`, see `docs/update-protocol.md`).
+- Ghidra chose `ARM:LE:32:v8`. The real core is an ARM926 (v5TE). No visible effect so
+  far.
+- The pyghidra-mcp metadata sheet shows "0 instructions / Analyzed false", but the
+  analysis did run: thousands of `FUN_c0…` functions.
+- The manual as text: `vendor/manual.txt` (generated by pdftotext, not in git).
 
-## Environnement
+## What the manual says (v1.x, 2013)
 
-- Conteneur `pyghidra-nl4` (port 8003), projet `ghidra/nl4_ghidra.gpr`, programme
-  `/nl4_os132_full.elf-<suffixe>` (le suffixe change à chaque import :
-  `list_project_binaries`). Serveur MCP déclaré
-  dans `.mcp.json`. Les autres conteneurs pyghidra (octalab, p12, sharc) appartiennent à
-  d'autres projets : **ne pas y toucher**.
-- Le programme Mac de mise à jour est aussi dans le projet Ghidra
-  (`/nordosupdate_x86_64-<suffixe>`, tranche x86_64 extraite par `lipo`, voir
-  `docs/update-protocol.md`).
-- Ghidra a choisi `ARM:LE:32:v8`. Le vrai cœur est un ARM926 (v5TE). Sans effet visible
-  jusqu'ici.
-- La fiche de métadonnées de pyghidra-mcp affiche « 0 instruction / Analyzed false »,
-  mais l'analyse a bien tourné : des milliers de fonctions `FUN_c0…`.
-- Le manuel en texte : `vendor/manual.txt` (généré par pdftotext).
+- **20 voices in total**, shared between the 4 slots (A–D). Unison and Chord Memory reduce
+  polyphony.
+- **Performance** = 4 programs (one per slot), layered or split (A+B on the left, C+D on
+  the right), 99 locations.
+- **MIDI channel per slot** (A, b, c, d: 1–16 / Off) + global channel. A slot assigned to
+  a channel plays even if it is not active on the panel.
+- **Bend Range per program**: 1–12, 24, 48, and asymmetric −12/−24 (2 downwards). The ±48
+  of MPE therefore already exists.
+- **Voice Mode** per program: Poly, Mono, Legato, Unison (several levels), Glide.
+- Two focuses: **Keyboard Focus** (slots played by the keyboard, LED lit) and **Panel
+  Focus** (a single slot, blinking LED, edited by the panel). The user thinks the pitch
+  stick only acts on the active slot outside Performance: **to check on the instrument**.
+- **Morph sources**: wheel / expression pedal, velocity, 3 Impulse buttons. The keyboard
+  has no aftertouch sensor, but the MIDI chart (p. 47) gives Channel Aftertouch
+  **transmitted and recognised** (Poly AT not). In the code, received pressure becomes the
+  slot's internal controller no. 8, which drives nothing (dead code).
+- The MIDI menu has a "Pitch Bend Mode" (Sr / r / S / Off).
 
-## Ce que dit le manuel (v1.x, 2013)
+## Leads in the firmware
 
-- **20 voix au total**, partagées entre les 4 slots (A–D). L'unisson et le Chord Memory
-  réduisent la polyphonie.
-- **Performance** = 4 programmes (un par slot), en layer ou split (A+B à gauche, C+D à
-  droite), 99 emplacements.
-- **Canal MIDI par slot** (A, b, c, d : 1–16 / Off) + canal global. Un slot affecté à un
-  canal joue même s'il n'est pas actif sur le panneau.
-- **Bend Range par programme** : 1–12, 24, 48, et asymétriques −12/−24 (2 vers le bas).
-  Le ±48 du MPE existe donc déjà.
-- **Voice Mode** par programme : Poly, Mono, Legato, Unison (plusieurs niveaux), Glide.
-- Deux focus : **Keyboard Focus** (slots joués par le clavier, LED allumée) et **Panel
-  Focus** (un seul slot, LED clignotante, édité par le panneau). L'utilisateur pense que
-  le pitch stick n'agit que sur le slot actif hors Performance : **à vérifier sur
-  l'instrument**.
-- **Sources de morph** : molette / pédale d'expression, vélocité, 3 boutons Impulse.
-  Le clavier n'a pas de capteur d'aftertouch, mais la charte MIDI (p. 47) indique
-  Channel Aftertouch **transmis et reconnu** (Poly AT non). Dans le code, la pression
-  reçue devient le contrôleur interne n° 8 du slot ; ce qu'elle module reste à trouver.
-- Le menu MIDI a un « Pitch Bend Mode » (Sr / r / S / Off).
-
-## Pistes dans le firmware
-
-| Chaîne | Adresse | Référencée depuis |
+| String | Address | Referenced from |
 |---|---|---|
-| `Unison` | 0xc01ca38c | 3 pointeurs |
-| `Legato` | 0xc01c9180 | 2 pointeurs |
-| `Polyphonic` | 0xc01ca2f0 | 1 pointeur |
-| `Alloc State` | 0xc01bde80 | `FUN_c0027670` → `fn_c001c77c(allocateur, "Alloc State")` : affichage de debug de l'allocateur |
+| `Unison` | 0xc01ca38c | 3 pointers |
+| `Legato` | 0xc01c9180 | 2 pointers |
+| `Polyphonic` | 0xc01ca2f0 | 1 pointer |
+| `Alloc State` | 0xc01bde80 | `FUN_c0027670` → `fn_c001c77c(allocator, "Alloc State")`: debug display of the allocator |
 
-Contrôle de la disposition corrigée : 353 chaînes sur 364 de la zone de données sont
-pointées exactement ; 3 737 entrées de tables de code sur 3 738 tombent sur un début de
-fonction. Les chaînes `FFS…` désignent un système de fichiers en flash (programmes /
-performances). `WaveTable Version: 05`.
+Check of the corrected layout: 353 of the 364 strings of the data area are pointed to
+exactly; 3,737 of 3,738 code table entries fall on a function start. The `FFS…` strings
+denote a flash file system (programs / performances). `WaveTable Version: 05`.
 
 ## Bootloader
 
-Il n'est **pas** dans `os.cab`.
-- L'image 2 est un programme de **test usine / service** : « LCD Test », « MIDI Test »,
-  « Check LEDs », « Serial Number », identifiants de flash SPI (Micron N25Q032,
-  SST 25VF032/26VF032). Elle tourne aux mêmes adresses que l'OS.
-- Le processeur est un **AM1705** (famille OMAP-L137, ARM seul), avec deux SHARC
-  ADSP-21489 pour l'audio et une flash SPI Micron N25Q032 (U38). Voir `docs/hardware.md`.
-- Le démarrage passe très probablement par la ROM de l'AM1705 (chargement d'une image
-  AIS depuis la flash SPI), puis par un 1er étage Clavia dans la flash, absent de la mise
-  à jour.
-- Le chargeur (mode 5, Boot) et le programme de mise à jour (mode 4, Update) ne sont
-  pas dans `os.cab` (`docs/update-protocol.md`).
-- **Mode Update sans OS : confirmé** sur l'instrument (Shift + Store à l'allumage →
-  « RDY », reconnu par Nord OS Update).
+It is **not** in `os.cab`.
+- Image 2 is a **factory test / service** program: "LCD Test", "MIDI Test", "Check LEDs",
+  "Serial Number", SPI flash identifiers (Micron N25Q032, SST 25VF032/26VF032). It runs at
+  the same addresses as the OS.
+- The processor is an **AM1705** (OMAP-L137 family, ARM only), with two SHARC ADSP-21489
+  for audio and a Micron N25Q032 SPI flash (U38). See `docs/hardware.md`.
+- Boot most likely goes through the AM1705 ROM (loading an AIS image from the SPI flash),
+  then a Clavia 1st stage in flash, not part of the update.
+- The loader (mode 5, Boot) and the update program (mode 4, Update) are not in `os.cab`
+  (`docs/update-protocol.md`).
+- **Update mode without the OS: confirmed** on the instrument (Shift + Store at power-on →
+  "RDY", recognised by Nord OS Update).
 
-## À quel niveau mettre le MPE
+## SHARC (exploration of 2026-11-18, `docs/sharc.md`)
 
-Retenu : **une zone MPE par slot**, et idéalement une zone au niveau de la Performance
-avec bascule automatique. Le « MPE léger » à 4 slots est écarté (déjà testé, pas le but).
+Two SHARC programs in the ARM OS (0xc03c5720, 0xc03d9334), extracted by
+`tools/extract_sharc.py`, opened with the extension built in the Prophet 12 project. The
+SHARC is an engine whose parameters the ARM writes in memory ([cmd|address, value] pairs
+through `hw_write`), smoothed at each block: **nothing to change on the SHARC side for
+MPE**.
 
-Ce que le code permet déjà, ou impose :
-- **Aiguillage** : masques de bits (port, canal) par cible → une zone = ajouter les
-  canaux membres 2–16 au masque du slot (`midi_routing_setup`, c00dee54).
-- **Cibles** : une zone par couple (port, canal), avec sa table de 128 notes → pas de
-  collision entre canaux à ce niveau si chaque canal membre est une zone.
-- **Obstacle 1** : plus loin, une note est identifiée par (slot, numéro de note), dans
-  l'allocateur et dans le tableau de touches du slot → y ajouter le canal.
-- **Obstacle 2** : bend (contrôleur 9) et pression (n° 8) sont mémorisés **par slot** →
-  les rendre par note / par voix.
-- **Piste Y/Z** : le morph de vélocité est calculé **par voix** (`voice_morph_eval`) à
-  partir de la vélocité de la voix → faire varier cette entrée en continu (CC74 / pression
-  du canal) et recalculer la voix.
-- Le pitch est déjà calculé et écrit **voix par voix** par l'ARM (`voice_pitch_*`).
+## Plan (agreed with the user on 2026-11-18)
 
-## SHARC (exploration du 2026-11-18, `docs/sharc.md`)
+1. **Step 1 — mapping (analysis, no risk)**: done (`docs/voices-midi.md`). Remaining
+   details: the panel's pitch stick, the exact roles of the two allocation paths
+   (`alloc_pick` / `alloc_core`), the bits of the voice-stealing key, the frequency of
+   `synth_tick`.
+2. **Step 2 — feasibility verdict**: written (`docs/feasibility.md`): feasible with an ARM
+   patch alone. The user decided to continue.
+3. **Step 3 — safety before any write: done (2026-11-18).** Checksums reproduced; update
+   protocol read; Update mode through Shift + Store confirmed; flash backup dropped (U38,
+   read cleanly, is **empty**; the firmware is in another memory, not reachable without
+   taking the board out, `docs/hardware.md`). The `CLAUDE.md` rule was updated with the
+   user's agreement.
+4. **Step 4 — progressive prototype**: stages 0 to 11 (`docs/patches.md`), all tried on
+   the instrument. Quit the updater after each update.
 
-Deux programmes SHARC dans l'OS ARM (0xc03c5720, 0xc03d9334), extraits par
-`tools/extract_sharc.py`, ouverts avec l'extension compilée du projet Prophet 12. Le
-SHARC est un moteur dont l'ARM écrit les paramètres en mémoire (paires
-[cmd|adresse, valeur] par `hw_write`), lissés à chaque bloc : **rien à modifier côté
-SHARC pour le MPE**.
+## Working method that works
 
-## Plan (validé avec l'utilisateur le 2026-11-18)
+- Ghidra (MCP server) for renamings and spot checks. For bulk searches, use
+  `ghidra/bin/decomp.c` (≈ 5,000 functions in pseudo-C) with grep / Python. It is the
+  quality reference: `tools/dump_decomp.py` disables the "Non-Returning Functions -
+  Discovered" analyser. The MCP server keeps the default analysis.
+- Why this option: `operator_new` calls the routine that throws `bad_alloc`, Ghidra infers
+  that `operator_new` never returns, and stops disassembling after each `new` (hundreds of
+  truncated functions, "Subroutine does not return").
+- Function starts (`ghidra/bin/funcs_seed.txt`, generated by `tools/rebuild.sh` with
+  `tools/find_func_starts.py`, plus `tools/seeds_low.txt` for SRAM and ARM0): `bl`
+  targets, pointer table entries, and `push {…, lr}` **only** after a return or a branch.
+  A `push` in 2nd position (`operator_new` starts with `cmp r0, #0`) must not become a
+  start: it splits the function in two.
+- `ghidra/bin/vtables.txt` (generated by `tools/rebuild.sh` with
+  `tools/find_ptr_tables.py`; not in git, like `funcs_seed.txt`: they are data extracted
+  from the firmware) lists the tables of pointers to code. Since the address correction,
+  3,737 of 3,738 entries fall on a function start. A C++ vtable (Itanium ABI) is read at
+  `vptr`; an entry `sub r0, r0, #N ; b …` is a `this`-adjusting relay (multiple
+  inheritance) to the real method.
+- MIDI goes through a **subscription bus**: do not look for direct calls between reception
+  and the slots; start from the types (0xc09140a8…e8) and `midi_subscribe`.
+- The decompressed CODE is validated: the official liblzo2 library (Homebrew `lzo`) gives
+  exactly the same bytes.
+- **Functions missing from the pseudo-C**: the methods of the parameter tables
+  (`engine_param_handler`, `voice_param_handler`) are only reached through pointers stored
+  in literal pools, or through a final `b`. The seeds do not find them: they have to be
+  named by hand in `tools/symbols.txt`. To read a method, take the parameter number → the
+  pool value (`DAT_…`) → `disassemble` on the server.
+- No RTTI in the firmware: no class names, name things by hand in `tools/symbols.txt`,
+  then `tools/rebuild.sh` and re-import.
+- **Lesson (2026-11-19)**: replacing a vtable pointer is not enough. An object with
+  several sub-objects is called through the **sub-object's** vtable, often a relay
+  `sub r0, r0, #N ; b method` that jumps directly. Look for all paths to the method
+  (pointers **and** `b` / `bl`) before choosing where to hook.
+- Lesson: a function address (position in the image) and an address read from a literal
+  pool (absolute value) are not checked the same way. Always check the layout with global
+  statistics (pointers to strings, table entries), not on a few cases: that is how the
+  0x20 offset was found.
 
-**Étape 1 — finir la cartographie (analyse, sans risque).** Ordre conseillé :
-1. ~~Chemin du bend~~ : fait (`docs/voices-midi.md`, « Chemin du pitch bend »). Reste
-   le pitch stick du panneau : un test sur l'instrument suffit.
-2. ~~Note On du slot → voix~~ : fait (`docs/voices-midi.md`, « Du slot à
-   l'allocateur »). Reste : le rôle exact des deux chemins d'allocation (`alloc_pick`
-   au type 1, `alloc_core` au type 2).
-3. ~~Pression et morph~~ : fait (`docs/voices-midi.md`, « Molette, pression et morph par
-   voix »). La pression est du code mort dans l'OS 1.32 ; le morph molette est global au
-   slot ; **le morph de vélocité est calculé voix par voix** (`voice_morph_eval`), avec la
-   vélocité comme entrée par voix : c'est le point d'entrée retenu pour Y / Z. L'entrée
-   est écrite au Note On par `voice_apply_velocity` (c0032098), la fonction à rappeler
-   en continu. Le CC74 s'intercepte dans `midi_cc_in` (c011ffc4), qui connaît le canal.
-   Assignation prévue : Y → source de morph Velocity, Z → source Wheel (par voix, à
-   étudier). Reste : comment le morph Wheel atteint les voix, fréquence de `synth_tick`.
-4. Annexes : `midi_routing_setup` en entier (champs des canaux global / A–D / Soft Thru),
-   bits de la clé de vol de voix, destinations de `hw_write` et cadence des mises à jour.
+## Risks
 
-**Étape 2 — verdict de faisabilité : rédigé (`docs/faisabilite.md`), décision de
-l'utilisateur en attente.** Verdict : faisable par un patch ARM seul. Note de conception : modifications nécessaires,
-fonctions touchées, niveau (slot / Performance), ce qui est simple, risqué ou impossible
-(ex. si le moteur n'accepte pas de modulation continue par voix). Décision de l'utilisateur
-de continuer ou non.
-
-**Étape 3 — sécurité avant toute écriture : faite (2026-11-18).**
-- ~~Reproduire les checksums~~ : fait.
-- ~~Comprendre la mise à jour~~ : fait côté Mac (`docs/update-protocol.md`). Reste à lire
-  la vérification du fichier (« OS BinFile seems broken »).
-- ~~Entrer en mode Update sans l'OS~~ : Shift + Store à l'allumage, confirmé.
-- ~~Sauvegarde de la flash~~ : abandonnée. U38 (N25Q032, connecteur P5) a été lue
-  proprement mais elle est **vide** ; le firmware est dans une autre mémoire, non
-  accessible sans démonter la carte (`docs/hardware.md`). Règle de `CLAUDE.md` mise à
-  jour avec l'accord de l'utilisateur.
-- Piste sans matériel : lire le pilote du système de fichiers « FFS » de l'OS pour
-  savoir sur quel bus est la mémoire du firmware.
-
-**Préparé pour l'étape 4 (2026-11-18)** : `tools/pack_oscab.py` reconstruit un `os.cab`
-valide (aller-retour identique, vérification de l'updater reproduite) ; notre code ira
-dans la section SRAM agrandie (`docs/faisabilite.md`, « Où loger notre code »).
-Reste à savoir comment donner le fichier à l'updater : remplacer
-`Contents/Resources/os.cab` dans une copie de l'application (signature à refaire en
-ad hoc si macOS refuse) **[à tester]**.
-
-**Prêts à essayer (2026-11-18)** : paliers 0 à 3 (`docs/patches.md`). Le palier 2 fait
-écouter les canaux 2 à 16 au slot en Keyboard Focus quand le canal global vaut 1 ; le
-palier 3 y ajoute le bend par note ±48. **Essayés le 2026-11-19 : tout marche**
-(updater re-signé, recompression, notes 2–16, bend par note). Quitter l'updater après
-chaque mise à jour.
-
-**Étape 4 — prototype progressif (seulement après l'étape 3).** Avant le premier OS
-modifié : répéter la procédure en réinstallant l'OS 1.32 officiel depuis le mode
-Shift + Store, et garder ce fichier prêt pour revenir en arrière. Puis le plus petit patch
-observable d'abord (un slot qui écoute plusieurs canaux), puis canal dans la clé, bend
-par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
-
-## Méthode de travail qui marche
-
-- Ghidra (serveur MCP) pour les renommages et les vérifications ponctuelles. Pour
-  chercher en masse, utiliser `ghidra/bin/decomp.c` (≈ 5 000 fonctions en pseudo-C) avec
-  grep / Python. C'est la référence de qualité : `tools/dump_decomp.py` désactive
-  l'analyseur « Non-Returning Functions - Discovered ». Le serveur MCP, lui, garde
-  l'analyse par défaut.
-- Pourquoi cette option : `operator_new` appelle la routine qui lève `bad_alloc`, Ghidra
-  en déduit qu'`operator_new` ne revient jamais, et cesse de désassembler après chaque
-  `new` (des centaines de fonctions tronquées, « Subroutine does not return »).
-- Débuts de fonctions (`ghidra/bin/funcs_seed.txt`, généré par `tools/rebuild.sh` avec `tools/find_func_starts.py`, plus `tools/seeds_low.txt` pour la SRAM et l'ARM0) :
-  cibles de `bl`, entrées de tables de pointeurs, et `push {…, lr}` **seulement** après
-  un retour ou un saut. Un `push` en 2ᵉ position (`operator_new` commence par
-  `cmp r0, #0`) ne doit pas devenir un début : il coupe la fonction en deux.
-- `ghidra/bin/vtables.txt` (généré par `tools/rebuild.sh` avec `tools/find_ptr_tables.py` ; hors git, comme `funcs_seed.txt` : ce sont des données extraites du firmware) liste les tables de
-  pointeurs vers du code. Depuis la correction des adresses, 3 737 entrées sur 3 738
-  tombent sur un début de fonction. Une vtable C++ (ABI Itanium) se lit à `vptr` ; une
-  entrée en `sub r0, r0, #N ; b …` est un relais d'ajustement de `this` (héritage
-  multiple) vers la vraie méthode.
-- Le MIDI passe par un **bus d'abonnement** : ne pas chercher d'appels directs entre la
-  réception et les slots ; partir des types (0xc09140a8…e8) et de `midi_subscribe`.
-- Le CODE décompressé est validé : la bibliothèque officielle liblzo2 (Homebrew `lzo`)
-  donne exactement les mêmes octets. Elle signale « input overrun » à la fin, faute de
-  marqueur de fin LZO.
-- **Fonctions absentes du pseudo-C** : les méthodes des tables de paramètres
-  (`engine_param_handler`, `voice_param_handler`) ne sont atteintes que par des pointeurs
-  rangés dans des pools de littéraux, ou par un `b` final. Les graines ne les trouvent
-  pas : il faut les nommer à la main dans `tools/symbols.txt`. Pour lire une méthode,
-  prendre le n° de paramètre → la valeur du pool (`DAT_…`) → `disassemble` sur le serveur.
-- Pas de RTTI dans le firmware : pas de noms de classes, on nomme à la main dans
-  `tools/symbols.txt`, puis `tools/rebuild.sh` et réimport.
-- **Leçon (2026-11-19)** : remplacer un pointeur de vtable ne suffit pas. Un objet à
-  plusieurs sous-objets est appelé par la vtable **du sous-objet**, souvent un relais
-  `sub r0, r0, #N ; b méthode` qui saute directement. Chercher tous les chemins vers la
-  méthode (pointeurs **et** `b` / `bl`) avant de choisir où brancher.
-- Leçon : une adresse de fonction (position dans l'image) et une adresse lue dans un pool
-  de littéraux (valeur absolue) ne se vérifient pas de la même façon. Toujours contrôler
-  la disposition par des statistiques globales (pointeurs vers chaînes, entrées de
-  tables), pas sur quelques cas : c'est ainsi que le décalage de 0x20 a été trouvé.
-
-## Risques
-
-- Flasher une image modifiée peut **rendre le clavier inutilisable** si le chargeur la
-  refuse ou si l'OS plante au démarrage. Aucune écriture tant qu'on ne sait pas comment
-  récupérer (mode de mise à jour, réécriture du chargeur ou non).
-- Droits : le firmware et les logiciels Clavia restent hors du dépôt. On ne publie que des
-  notes, des formats et notre propre code (même ligne que
-  [opennord](https://github.com/simonflore/opennord)). Licence GPL v3 + exception, comme
+- Flashing a modified image can **make the keyboard unusable** if the loader refuses it or
+  if the OS crashes at boot. Recovery: Shift + Store, then the official OS.
+- Rights: Clavia's firmware and software stay out of the repository. Only notes, formats
+  and our own code are published (same line as
+  [opennord](https://github.com/simonflore/opennord)). Licence GPL v3 + exception, like
   P12 M (`LICENSE`, `LICENSE-EXCEPTION.md`).
 
-## Idées pour après le MPE (proposées par l'utilisateur, 2026-11-18)
+## Ideas for after MPE (proposed by the user, 2026-11-18)
 
-Priorités de l'utilisateur : **les fonctions d'aide (conversion d'un programme en MPE)
-avant tout** ; **des sources de modulation Y / Z distinctes de Velocity** l'intéressent ;
-les nouvelles tables d'ondes ne sont qu'un exemple, pas un objectif (le synthé est déjà
-complet).
+The user's priorities: **helper functions (converting a program to MPE) first of all**;
+**Y / Z modulation sources separate from Velocity** interest them (partly done in
+stage 11); new wavetables are only an example, not a goal (the synth is already complete).
 
-
-- **Fonction « convertir pour le MPE »** à la manière du Mutator (`docs/faisabilite.md`).
-- **Nouvelles tables d'ondes.** Repérage rapide **[hyp.]** : les tables sont côté ARM,
-  bloc de données à haute entropie de 0xc01d0000 à ~0xc03bd000 (≈ 1,9 Mo pour 128
-  tables, ≈ 15 Ko chacune, sans doute plusieurs niveaux par table), noms vers
-  0xc03bd800, « WaveTable Version » en 0xc01ca768 ; l'ARM les envoie sans doute au
-  SHARC à la demande (le SHARC n'a pas 1,9 Mo de RAM). Le manuel annonce 128 tables
-  dans un chapitre et 114 dans les caractéristiques : peut-être des emplacements libres.
-  Remplacer une table ne coûte pas de place ; en ajouter au-delà de 128 touche au format
-  des programmes et au CC49 (0–127). Les échantillons se compressent mal : compter
-  ≈ 15 Ko de flash par table, sur une marge connue de 200 Ko.
-
+- **"Convert for MPE" function** in the manner of the Mutator (`docs/feasibility.md`).
+- **New wavetables.** Quick look **[hyp.]**: the tables are on the ARM side, a
+  high-entropy data block from 0xc01d0000 to ~0xc03bd000 (≈ 1.9 MB for 128 tables,
+  ≈ 15 KB each, probably several levels per table), names around 0xc03bd800, "WaveTable
+  Version" at 0xc01ca768; the ARM probably sends them to the SHARC on demand (the SHARC
+  does not have 1.9 MB of RAM). The manual announces 128 tables in one chapter and 114 in
+  the specifications: maybe free slots. Replacing a table costs no space; adding beyond
+  128 touches the program format and CC49 (0–127). Samples compress badly: count
+  ≈ 15 KB of flash per table, on a known margin of 200 KB.
