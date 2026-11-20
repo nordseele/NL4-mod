@@ -144,9 +144,8 @@ firmware.
 
 ## Support
 
-If you find this mod useful, please consider supporting its development on
-[Ko-fi](https://ko-fi.com/bumathan). It helps me keep testing, fixing and adding
-features. Thank you!
+If you find this mod useful, you can buy me a coffee on
+[Ko-fi](https://ko-fi.com/bumathan). Thank you!
 
 ## Licence
 
