@@ -324,11 +324,11 @@ par voix, pression, timbre. Tests avec l'Osmose et le LinnStrument.
 - Pourquoi cette option : `operator_new` appelle la routine qui lève `bad_alloc`, Ghidra
   en déduit qu'`operator_new` ne revient jamais, et cesse de désassembler après chaque
   `new` (des centaines de fonctions tronquées, « Subroutine does not return »).
-- Débuts de fonctions (`tools/funcs_seed.txt`, généré par `tools/find_func_starts.py`) :
+- Débuts de fonctions (`ghidra/bin/funcs_seed.txt`, généré par `tools/rebuild.sh` avec `tools/find_func_starts.py`, plus `tools/seeds_low.txt` pour la SRAM et l'ARM0) :
   cibles de `bl`, entrées de tables de pointeurs, et `push {…, lr}` **seulement** après
   un retour ou un saut. Un `push` en 2ᵉ position (`operator_new` commence par
   `cmp r0, #0`) ne doit pas devenir un début : il coupe la fonction en deux.
-- `tools/vtables.txt` (généré par `tools/find_ptr_tables.py`) liste les tables de
+- `ghidra/bin/vtables.txt` (généré par `tools/rebuild.sh` avec `tools/find_ptr_tables.py` ; hors git, comme `funcs_seed.txt` : ce sont des données extraites du firmware) liste les tables de
   pointeurs vers du code. Depuis la correction des adresses, 3 737 entrées sur 3 738
   tombent sur un début de fonction. Une vtable C++ (ABI Itanium) se lit à `vptr` ; une
   entrée en `sub r0, r0, #N ; b …` est un relais d'ajustement de `this` (héritage

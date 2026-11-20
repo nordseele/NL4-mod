@@ -4,7 +4,7 @@ usage: python3 -I find_func_starts.py code.bin base_hex code_end_hex vtables.txt
 
 Kept as starts:
   - targets of BL instructions,
-  - vtable entries (tools/vtables.txt: "addr count e1 e2 ..."),
+  - vtable entries (ghidra/bin/vtables.txt: "addr count e1 e2 ..."),
   - `push {..., lr}` only when the previous word ends a function (return, unconditional
     branch) or is not code. A push in 2nd position (e.g. operator_new starts with
     `cmp r0, #0`) must not become a start: it splits the function and makes Ghidra
